@@ -41,6 +41,25 @@ class Chef
         :default => false,
         :description => "Show availability zones"
 
+      option :vpc,
+        :short => "-v",
+        :long => "--vpc",
+        :boolean => true,
+        :default => false,
+        :description => "Show VPC ID"
+
+      option :key,
+        :long => "--no-key",
+        :boolean => true,
+        :default => true,
+        :description => "Disable displaying SSH key"
+
+      option :image,
+        :long => "--no-image",
+        :boolean => true,
+        :default => true,
+        :description => "Disable displaying AMI"
+
       option :tags,
         :short => "-t TAG1,TAG2",
         :long => "--tags TAG1,TAG2",
@@ -58,6 +77,8 @@ class Chef
           fcolor = :green
         when "m1.xlarge"
           fcolor = :red
+        else
+          fcolor = :black
         end
       end
 
@@ -97,6 +118,10 @@ class Chef
 
         validate!
 
+        @group_id_hash = Hash[connection.security_groups.map{|g| 
+          [g.group_id, g.name]
+        }]
+
         server_list = [
           ui.color('Instance ID', :bold),
         
@@ -112,8 +137,14 @@ class Chef
             ui.color('AZ', :bold)
           end,
 
-          ui.color('Image', :bold),
-          ui.color('SSH Key', :bold),
+          if config[:image]
+            ui.color('Image', :bold)
+          end,
+
+          if config[:key]
+            ui.color('SSH Key', :bold)
+          end,
+
           ui.color('Security Groups', :bold),
           
           if config[:tags]
@@ -121,8 +152,13 @@ class Chef
               ui.color("Tag:#{tag_name}", :bold)
             end
           end,
-          
+
+          if config[:vpc]
+            ui.color('VPC', :bold)
+          end,
+
           ui.color('IAM Profile', :bold),
+          
           ui.color('State', :bold)
         ].flatten.compact
         
@@ -141,7 +177,6 @@ class Chef
           
           server_list << server.public_ip_address.to_s
           server_list << server.private_ip_address.to_s
-          
           server_list << ui.color(
                                   server.flavor_id.to_s,
                                   fcolor(server.flavor_id.to_s)
@@ -154,18 +189,32 @@ class Chef
                               )
           end
 
-          server_list << server.image_id.to_s
-          server_list << server.key_name.to_s
-          server_list << server.groups.join(", ")
+          if config[:image]
+            server_list << server.image_id.to_s
+          end
+
+          if config[:key]
+            server_list << server.key_name.to_s
+          end
+
+          if server.vpc_id
+            server_list << groups_with_ids(server.security_group_ids).join(", ")
+          else
+            server_list << server.groups.join(", ")
+          end
           
           if config[:tags]
             config[:tags].split(",").each do |tag_name|
               server_list << server.tags[tag_name].to_s
             end
           end
-          
-          server_list << iam_name_from_profile(server.iam_instance_profile)
 
+          if config[:vpc]
+            server_list << server.vpc_id.to_s
+          end
+
+          server_list << iam_name_from_profile(server.iam_instance_profile)
+          
           server_list << begin
             state = server.state.to_s.downcase
             case state
