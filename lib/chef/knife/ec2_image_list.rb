@@ -26,27 +26,48 @@ class Chef
 
       banner "knife ec2 image list (options)"
 
+      option :tags,
+        :short => "-t TAG1,TAG2",
+        :long => "--tags TAG1,TAG2",
+        :description => "List of tags to output"
+
       def run
 
         validate!
 
-        flavor_list = [
+        image_list = [
           ui.color('ID', :bold),
-          ui.color('Architecture', :bold),
+          ui.color('Arch', :bold),
           ui.color('Description', :bold),
           ui.color('Root Dev', :bold),
-          ui.color('Tag:Name', :bold),
+          
+          if config[:tags]
+            config[:tags].split(",").collect do |tag_name|
+              ui.color("Tag:#{tag_name}", :bold)
+            end
+          end,
+
           ui.color('Name', :bold)
-        ]
-        connection.images.all('is-public' => 'false').sort_by(&:id).each do |flavor|
-          flavor_list << flavor.id.to_s
-          flavor_list << flavor.architecture.to_s
-          flavor_list << flavor.description.to_s
-          flavor_list << flavor.root_device_type.to_s
-          flavor_list << flavor.tags["Name"].to_s
-          flavor_list << flavor.name.to_s
+        ].flatten.compact
+
+        output_column_count = image_list.length
+
+        connection.images.all('is-public' => 'false').sort_by(&:id).each do |image|
+          image_list << image.id.to_s
+          image_list << image.architecture.to_s
+          image_list << image.description.to_s
+          image_list << image.root_device_type.to_s
+          
+          if config[:tags]
+            config[:tags].split(",").each do |tag_name|
+              image_list << image.tags[tag_name].to_s
+            end
+          end
+          
+          image_list << image.name.to_s
         end
-        puts ui.list(flavor_list, :columns_across, 6)
+
+        puts ui.list(image_list, :uneven_columns_across, output_column_count)
       end
     end
   end
