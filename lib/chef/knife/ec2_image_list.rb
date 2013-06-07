@@ -31,6 +31,13 @@ class Chef
         :long => "--tags TAG1,TAG2",
         :description => "List of tags to output"
 
+      option :root,
+        :short => "-r",
+        :long => "--root-dev",
+        :boolean => true,
+        :default => false,
+        :description => "Show root device type"
+
       def run
 
         validate!
@@ -38,33 +45,47 @@ class Chef
         image_list = [
           ui.color('ID', :bold),
           ui.color('Arch', :bold),
-          ui.color('Description', :bold),
-          ui.color('Root Dev', :bold),
+          ui.color('Name/Desc', :bold),
+
+          if config[:root]
+            ui.color('Root Dev', :bold)
+          end,
           
           if config[:tags]
             config[:tags].split(",").collect do |tag_name|
               ui.color("Tag:#{tag_name}", :bold)
             end
-          end,
-
-          ui.color('Name', :bold)
+          end
         ].flatten.compact
 
         output_column_count = image_list.length
 
         connection.images.all('is-public' => 'false').sort_by(&:id).each do |image|
           image_list << image.id.to_s
-          image_list << image.architecture.to_s
-          image_list << image.description.to_s
-          image_list << image.root_device_type.to_s
+          
+          if image.platform
+            image_list << image.architecture.to_s + "/" + 
+              image.platform.to_s
+          else
+            image_list << image.architecture.to_s
+          end
+
+          if image.description
+            image_list << image.name.to_s + "/" +
+              image.description.to_s
+          else
+            image_list << image.name.to_s
+          end
+
+          if config[:root]
+            image_list << image.root_device_type.to_s
+          end
           
           if config[:tags]
             config[:tags].split(",").each do |tag_name|
               image_list << image.tags[tag_name].to_s
             end
           end
-          
-          image_list << image.name.to_s
         end
 
         puts ui.list(image_list, :uneven_columns_across, output_column_count)
