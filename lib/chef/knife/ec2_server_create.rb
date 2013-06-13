@@ -222,6 +222,12 @@ class Chef
         :description => "The EC2 server attribute to use for SSH connection",
         :default => nil
 
+      option :no_ssh_bootstrap,
+        :long => "--without-ssh",
+        :short => "-W",
+        :description => "Send bootstrap script through user_data (useful if SSH access is not available)",
+        :proc => Proc.new { |m| Chef::Config[:knife][:no_ssh_bootstrap] = m }
+
     def tcp_test_winrm(ip_addr, port)
       tcp_socket = TCPSocket.new(ip_addr, port)
       yield
@@ -387,6 +393,10 @@ class Chef
 
         #Check if Server is Windows or Linux
         if is_image_windows?
+          if config[:no_ssh_bootstrap]
+            ui.error("--without-ssh not available on Windows instances")
+            exit 1
+          end
           protocol = locate_config_value(:bootstrap_protocol)
           if protocol == 'winrm'
             load_winrm_deps
@@ -404,7 +414,7 @@ class Chef
             }
           end
           bootstrap_for_windows_node(@server,ssh_connect_host).run
-        else
+        elsif ! config[:no_ssh_bootstrap]
             wait_for_sshd(ssh_connect_host)
             bootstrap_for_linux_node(@server,ssh_connect_host).run
         end
@@ -418,7 +428,7 @@ class Chef
         msg_pair("Security Groups", printed_security_groups) unless vpc_mode? or (@server.groups.nil? and @server.security_group_ids)
         msg_pair("Security Group Ids", printed_security_group_ids) if vpc_mode? or @server.security_group_ids
         msg_pair("Tags", hashed_tags)
-        msg_pair("SSH Key", @server.key_name)
+        msg_pair("SSH Key", @server.key_name) unless config[:no_ssh_bootstrap]
         msg_pair("Root Device Type", @server.root_device_type)
         if @server.root_device_type == "ebs"
           device_map = @server.block_device_mapping.first
@@ -468,7 +478,11 @@ class Chef
         # knife-bootstrap
         Chef::Config[:knife][:hints] ||= {}
         Chef::Config[:knife][:hints]["ec2"] ||= {}
-        bootstrap
+        if config[:no_ssh_bootstrap]
+          bootstrap.render_template(IO.read(bootstrap.find_template).chomp)
+        else
+          bootstrap
+        end
       end
 
       def fetch_server_fqdn(ip_addr)
@@ -508,9 +522,9 @@ class Chef
         bootstrap_common_params(bootstrap)
       end
 
-      def bootstrap_for_linux_node(server,ssh_host)
+      def bootstrap_for_linux_node(server = nil,ssh_host = nil)
         bootstrap = Chef::Knife::Bootstrap.new
-        bootstrap.name_args = [ssh_host]
+        bootstrap.name_args = [ssh_host] unless config[:no_ssh_bootstrap]
         bootstrap.config[:ssh_user] = config[:ssh_user]
         bootstrap.config[:ssh_port] = config[:ssh_port]
         bootstrap.config[:ssh_gateway] = config[:ssh_gateway]
@@ -596,6 +610,15 @@ class Chef
           rescue
             ui.warn("Cannot read #{Chef::Config[:knife][:aws_user_data]}: #{$!.inspect}. Ignoring option.")
           end
+        end
+
+        if config[:no_ssh_bootstrap]
+          # When no_ssh_bootstrap is set, bootstrap_for_linux_node
+          # returns the rendered template as a string.  We need to
+          # prepend a shebang in order for Cloud Init to interpret
+          # it as a shell script.
+          bootstrap_script = "#!/bin/bash\n\n" + bootstrap_for_linux_node
+          server_def.merge!(:user_data => bootstrap_script)
         end
 
         if config[:ebs_optimized]
