@@ -588,6 +588,29 @@ class Chef
         end
       end
 
+      def read_template(bootstrap)
+        # Get the template pathname with bootstrap.find_template
+        # and output the whole thing as a string.
+        IO.read(bootstrap.find_template).chomp
+      end
+
+      def bootstrap_script
+        # bootstrap_for_linux_node doesn't actually bootstrap.
+        # Instead, it just gathers the bootstrap configuration,
+        # which we will use to render the template for passing as
+        # user data.  We then need to prepend a shebang in order for 
+        # Cloud Init to interpret it as a shell script.
+        
+        bootstrap = bootstrap_for_linux_node
+
+        # read_template returns the whole template as a string, then
+        # render_template turns it from eruby into a useful script.
+        rendered_template = bootstrap.render_template(read_template(bootstrap))
+
+        # Prepend the shebang.
+        bootstrap_script = "#!/bin/bash\n\n" + rendered_template
+      end
+
       def create_server_def
         server_def = {
           :image_id => locate_config_value(:image),
@@ -609,14 +632,9 @@ class Chef
         end
 
         if config[:no_ssh_bootstrap]
-          # bootstrap_for_linux_node doesn't actually bootstrap.
-          # Instead it just gathers the bootstrap configuration,
-          # which we will use to render the template for passing as
-          # user data.  We then need to prepend a shebang in order for 
-          # Cloud Init to interpret it as a shell script.
-          bootstrap = bootstrap_for_linux_node
-          rendered_template = bootstrap.render_template(bootstrap.render_template(IO.read(bootstrap.find_template).chomp))
-          bootstrap_script = "#!/bin/bash\n\n" + rendered_template
+          # Merge bootstrap_script into server_def.  If someone 
+          # defined user_data in their knife.rb or via the command 
+          # line, this will overwrite it.
           server_def.merge!(:user_data => bootstrap_script)
         end
 
