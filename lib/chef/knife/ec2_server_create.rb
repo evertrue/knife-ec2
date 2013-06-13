@@ -478,11 +478,7 @@ class Chef
         # knife-bootstrap
         Chef::Config[:knife][:hints] ||= {}
         Chef::Config[:knife][:hints]["ec2"] ||= {}
-        if config[:no_ssh_bootstrap]
-          bootstrap.render_template(IO.read(bootstrap.find_template).chomp)
-        else
-          bootstrap
-        end
+        bootstrap
       end
 
       def fetch_server_fqdn(ip_addr)
@@ -613,11 +609,14 @@ class Chef
         end
 
         if config[:no_ssh_bootstrap]
-          # When no_ssh_bootstrap is set, bootstrap_for_linux_node
-          # returns the rendered template as a string.  We need to
-          # prepend a shebang in order for Cloud Init to interpret
-          # it as a shell script.
-          bootstrap_script = "#!/bin/bash\n\n" + bootstrap_for_linux_node
+          # bootstrap_for_linux_node doesn't actually bootstrap.
+          # Instead it just gathers the bootstrap configuration,
+          # which we will use to render the template for passing as
+          # user data.  We then need to prepend a shebang in order for 
+          # Cloud Init to interpret it as a shell script.
+          bootstrap = bootstrap_for_linux_node
+          rendered_template = bootstrap.render_template(bootstrap.render_template(IO.read(bootstrap.find_template).chomp))
+          bootstrap_script = "#!/bin/bash\n\n" + rendered_template
           server_def.merge!(:user_data => bootstrap_script)
         end
 
