@@ -18,6 +18,7 @@ Gem::Specification.new do |s|
 
   s.add_dependency 'fog',           '~> 1.20.0'
   s.add_dependency 'knife-windows', '>= 0.5.12'
+  s.add_dependency "aws-s3"
 
   s.add_development_dependency 'mixlib-config', '~> 2.0'
   s.add_development_dependency 'chef',          '>= 0.10.10'
