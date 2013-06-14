@@ -28,6 +28,7 @@ class Chef
       include Knife::WinrmBase
       deps do
         require 'fog'
+        require 'aws/s3'
         require 'readline'
         require 'chef/json_compat'
         require 'chef/knife/bootstrap'
@@ -227,6 +228,11 @@ class Chef
         :short => "-W",
         :description => "Send bootstrap script through user_data (useful if SSH access is not available)",
         :proc => Proc.new { |m| Chef::Config[:knife][:no_ssh_bootstrap] = m }
+
+      option :s3_bootstrap_bucket,
+        :long => "--s3-bootstrap-bucket",
+        :description => "Bucket to use for storing the bootstrap template (in the format: BUCKET/PATH)",
+        :proc => Proc.new { |m| Chef::Config[:knife][:s3_bootstrap_bucket] = m }
 
     def tcp_test_winrm(ip_addr, port)
       tcp_socket = TCPSocket.new(ip_addr, port)
@@ -594,6 +600,47 @@ class Chef
         IO.read(bootstrap.find_template).chomp
       end
 
+      def parse_s3_bucket_url(bucket_url)
+        s3_url = {}
+        bucket_url_a = bucket_url.split('/')
+        s3_url[:bucket] = bucket_url_a.first
+        s3_url[:path] = bucket_url_a[1..-1].join('/')
+
+        if s3_url[:path][-1] != "/"
+          s3_url[:path] = s3_url[:path] + "/"
+        end
+
+        s3_url
+      end
+
+      def template_s3_push(rendered_template)
+        AWS::S3::Base.establish_connection!(
+          :access_key_id => Chef::Config[:knife][:aws_access_key_id],
+          :secret_access_key => Chef::Config[:knife][:aws_secret_access_key]
+        )
+
+        s3_url = parse_s3_bucket_url(config[:s3_bootstrap_bucket])
+
+        s3_url[:path] += "ec2_bootstrap_script.sh"
+
+        resp = AWS::S3::S3Object.store(
+          s3_url[:path],
+          rendered_template,
+          s3_url[:bucket]
+        )
+
+        if resp.error?
+          raise "Error upoading template to S3.  Response: " + resp.error
+        end
+
+        template_s3_url = AWS::S3::S3Object.url_for(
+          s3_url[:path],
+          s3_url[:bucket]
+        )
+
+        template_s3_url
+      end
+
       def bootstrap_script
         # bootstrap_for_linux_node doesn't actually bootstrap.
         # Instead, it just gathers the bootstrap configuration,
@@ -607,8 +654,18 @@ class Chef
         # render_template turns it from eruby into a useful script.
         rendered_template = bootstrap.render_template(read_template(bootstrap))
 
-        # Prepend the shebang.
-        bootstrap_script = "#!/bin/bash\n\n" + rendered_template
+        # Since user_data cannot be deleted once an instance is created
+        # we're going to push the rendered_template (which contains
+        # sensitive data, and a prepended shebang so that Cloud Init 
+        # will know that it's a shell script) to S3 and get back 
+        # a signed, temporary URL which we will then send to the 
+        # server.
+        template_s3_url = template_s3_push("#!/bin/bash\n\n" + rendered_template)
+
+        # Send back a user data block that just includes the URL
+        # with "#include" instructing Cloud Init to download it
+        # and use it as a bootstrap script.
+        bootstrap_script = "#include\n\n#{template_s3_url}"
       end
 
       def create_server_def
