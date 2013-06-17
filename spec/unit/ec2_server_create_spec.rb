@@ -439,12 +439,13 @@ describe Chef::Knife::Ec2ServerCreate do
       server_def[:flavor_id].should == "massive"
     end
 
-    it "sets the user_data via template in without-ssh mode" do
+    it "sets the user_data with s3 url in without-ssh mode" do
       @knife_ec2_create.config[:no_ssh_bootstrap] = true
       @knife_ec2_create.config[:chef_node_name] = "wombat"
+      @knife_ec2_create.stub(:template_s3_push).and_return("https://mock_signed_s3_url/")
       @knife_ec2_create.stub(:read_template).and_return('<%= first_boot.to_json %>')
       server_def = @knife_ec2_create.create_server_def
-      server_def[:user_data].should == "#!/bin/bash\n\n{\"run_list\":null}"
+      server_def[:user_data].should == "#include\n\nhttps://mock_signed_s3_url/"
     end
 
     it "sets the availability zone from CLI arguments over knife config" do
