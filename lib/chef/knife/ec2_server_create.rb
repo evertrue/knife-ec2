@@ -19,6 +19,7 @@
 
 require 'chef/knife/ec2_base'
 require 'chef/knife/winrm_base'
+require 'aws/s3'
 
 class Chef
   class Knife
@@ -28,7 +29,6 @@ class Chef
       include Knife::WinrmBase
       deps do
         require 'fog'
-        require 'aws/s3'
         require 'readline'
         require 'chef/json_compat'
         require 'chef/knife/bootstrap'
@@ -614,6 +614,12 @@ class Chef
         template_s3_url
       end
 
+      def rendered_template(bootstrap)
+        # read_template returns the whole template as a string, then
+        # render_template turns it from eruby into a useful script.
+        bootstrap.render_template(read_template(bootstrap))
+      end
+
       def bootstrap_script
         # bootstrap_for_linux_node doesn't actually bootstrap.
         # Instead, it just gathers the bootstrap configuration,
@@ -623,17 +629,13 @@ class Chef
         
         bootstrap = bootstrap_for_linux_node
 
-        # read_template returns the whole template as a string, then
-        # render_template turns it from eruby into a useful script.
-        rendered_template = bootstrap.render_template(read_template(bootstrap))
-
         # Since user_data cannot be deleted once an instance is created
         # we're going to push the rendered_template (which contains
         # sensitive data, and a prepended shebang so that Cloud Init 
         # will know that it's a shell script) to S3 and get back 
         # a signed, temporary URL which we will then send to the 
         # server.
-        template_s3_url = template_s3_push("#!/bin/bash\n\n" + rendered_template)
+        template_s3_url = template_s3_push("#!/bin/bash\n\n" + rendered_template(bootstrap))
 
         # Send back a user data block that just includes the URL
         # with "#include" instructing Cloud Init to download it
