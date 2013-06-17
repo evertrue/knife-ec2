@@ -120,6 +120,30 @@ describe Chef::Knife::Ec2ServerCreate do
     end
   end
 
+  describe "run without-ssh" do
+    before do
+      @ec2_servers.should_receive(:create).and_return(@new_ec2_server)
+      @ec2_connection.should_receive(:servers).and_return(@ec2_servers)
+
+      Fog::Compute::AWS.should_receive(:new).and_return(@ec2_connection)
+
+      @knife_ec2_create.stub!(:puts)
+      @knife_ec2_create.stub!(:print)
+
+      @bootstrap = Chef::Knife::Bootstrap.new
+      Chef::Knife::Bootstrap.stub!(:new).and_return(@bootstrap)
+
+      @knife_ec2_create.stub(:bootstrap_script).and_return("dummy user_data")
+      @new_ec2_server.should_receive(:wait_for).and_return(true)
+    end
+
+    it "should never invoke bootstrap.run in without-ssh mode" do
+      @knife_ec2_create.config[:no_ssh_bootstrap] = true
+      @knife_ec2_create.run
+      @bootstrap.should_not_receive(:run)
+    end
+  end
+
   describe "run for EC2 Windows instance" do
     before do
       @ec2_servers.should_receive(:create).and_return(@new_ec2_server)
@@ -413,6 +437,14 @@ describe Chef::Knife::Ec2ServerCreate do
       server_def = @knife_ec2_create.create_server_def
 
       server_def[:flavor_id].should == "massive"
+    end
+
+    it "sets the user_data via template in without-ssh mode" do
+      @knife_ec2_create.config[:no_ssh_bootstrap] = true
+      @knife_ec2_create.config[:chef_node_name] = "wombat"
+      @knife_ec2_create.stub(:read_template).and_return('<%= first_boot.to_json %>')
+      server_def = @knife_ec2_create.create_server_def
+      server_def[:user_data].should == "#!/bin/bash\n\n{\"run_list\":null}"
     end
 
     it "sets the availability zone from CLI arguments over knife config" do

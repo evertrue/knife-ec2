@@ -28,6 +28,7 @@ class Chef
       include Knife::WinrmBase
       deps do
         require 'fog'
+        require 'aws/s3'
         require 'readline'
         require 'chef/json_compat'
         require 'chef/knife/bootstrap'
@@ -222,6 +223,17 @@ class Chef
         :description => "The EC2 server attribute to use for SSH connection",
         :default => nil
 
+      option :no_ssh_bootstrap,
+        :long => "--without-ssh",
+        :short => "-W",
+        :description => "Send bootstrap script through user_data (useful if SSH access is not available)",
+        :proc => Proc.new { |m| Chef::Config[:knife][:no_ssh_bootstrap] = m }
+
+      option :s3_bootstrap_bucket,
+        :long => "--s3-bootstrap-bucket",
+        :description => "Bucket to use for storing the bootstrap template (in the format: BUCKET/PATH)",
+        :proc => Proc.new { |m| Chef::Config[:knife][:s3_bootstrap_bucket] = m }
+
     def tcp_test_winrm(ip_addr, port)
       tcp_socket = TCPSocket.new(ip_addr, port)
       yield
@@ -387,6 +399,10 @@ class Chef
 
         #Check if Server is Windows or Linux
         if is_image_windows?
+          if config[:no_ssh_bootstrap]
+            ui.error("--without-ssh not available on Windows instances")
+            exit 1
+          end
           protocol = locate_config_value(:bootstrap_protocol)
           if protocol == 'winrm'
             load_winrm_deps
@@ -404,7 +420,7 @@ class Chef
             }
           end
           bootstrap_for_windows_node(@server,ssh_connect_host).run
-        else
+        elsif ! config[:no_ssh_bootstrap]
             wait_for_sshd(ssh_connect_host)
             bootstrap_for_linux_node(@server,ssh_connect_host).run
         end
@@ -418,7 +434,7 @@ class Chef
         msg_pair("Security Groups", printed_security_groups) unless vpc_mode? or (@server.groups.nil? and @server.security_group_ids)
         msg_pair("Security Group Ids", printed_security_group_ids) if vpc_mode? or @server.security_group_ids
         msg_pair("Tags", hashed_tags)
-        msg_pair("SSH Key", @server.key_name)
+        msg_pair("SSH Key", @server.key_name) unless config[:no_ssh_bootstrap]
         msg_pair("Root Device Type", @server.root_device_type)
         if @server.root_device_type == "ebs"
           device_map = @server.block_device_mapping.first
@@ -508,9 +524,9 @@ class Chef
         bootstrap_common_params(bootstrap)
       end
 
-      def bootstrap_for_linux_node(server,ssh_host)
+      def bootstrap_for_linux_node(server = nil,ssh_host = nil)
         bootstrap = Chef::Knife::Bootstrap.new
-        bootstrap.name_args = [ssh_host]
+        bootstrap.name_args = [ssh_host] unless config[:no_ssh_bootstrap]
         bootstrap.config[:ssh_user] = config[:ssh_user]
         bootstrap.config[:ssh_port] = config[:ssh_port]
         bootstrap.config[:ssh_gateway] = config[:ssh_gateway]
@@ -578,6 +594,80 @@ class Chef
         end
       end
 
+      def read_template(bootstrap)
+        # Get the template pathname with bootstrap.find_template
+        # and output the whole thing as a string.
+        IO.read(bootstrap.find_template).chomp
+      end
+
+      def parse_s3_bucket_url(bucket_url)
+        s3_url = {}
+        bucket_url_a = bucket_url.split('/')
+        s3_url[:bucket] = bucket_url_a.first
+        s3_url[:path] = bucket_url_a[1..-1].join('/')
+
+        if s3_url[:path][-1] != "/"
+          s3_url[:path] = s3_url[:path] + "/"
+        end
+
+        s3_url
+      end
+
+      def template_s3_push(rendered_template)
+        AWS::S3::Base.establish_connection!(
+          :access_key_id => Chef::Config[:knife][:aws_access_key_id],
+          :secret_access_key => Chef::Config[:knife][:aws_secret_access_key]
+        )
+
+        s3_url = parse_s3_bucket_url(config[:s3_bootstrap_bucket])
+
+        s3_url[:path] += "ec2_bootstrap_script.sh"
+
+        resp = AWS::S3::S3Object.store(
+          s3_url[:path],
+          rendered_template,
+          s3_url[:bucket]
+        )
+
+        if resp.error?
+          raise "Error upoading template to S3.  Response: " + resp.error
+        end
+
+        template_s3_url = AWS::S3::S3Object.url_for(
+          s3_url[:path],
+          s3_url[:bucket]
+        )
+
+        template_s3_url
+      end
+
+      def bootstrap_script
+        # bootstrap_for_linux_node doesn't actually bootstrap.
+        # Instead, it just gathers the bootstrap configuration,
+        # which we will use to render the template for passing as
+        # user data.  We then need to prepend a shebang in order for 
+        # Cloud Init to interpret it as a shell script.
+        
+        bootstrap = bootstrap_for_linux_node
+
+        # read_template returns the whole template as a string, then
+        # render_template turns it from eruby into a useful script.
+        rendered_template = bootstrap.render_template(read_template(bootstrap))
+
+        # Since user_data cannot be deleted once an instance is created
+        # we're going to push the rendered_template (which contains
+        # sensitive data, and a prepended shebang so that Cloud Init 
+        # will know that it's a shell script) to S3 and get back 
+        # a signed, temporary URL which we will then send to the 
+        # server.
+        template_s3_url = template_s3_push("#!/bin/bash\n\n" + rendered_template)
+
+        # Send back a user data block that just includes the URL
+        # with "#include" instructing Cloud Init to download it
+        # and use it as a bootstrap script.
+        bootstrap_script = "#include\n\n#{template_s3_url}"
+      end
+
       def create_server_def
         server_def = {
           :image_id => locate_config_value(:image),
@@ -596,6 +686,13 @@ class Chef
           rescue
             ui.warn("Cannot read #{Chef::Config[:knife][:aws_user_data]}: #{$!.inspect}. Ignoring option.")
           end
+        end
+
+        if config[:no_ssh_bootstrap]
+          # Merge bootstrap_script into server_def.  If someone 
+          # defined user_data in their knife.rb or via the command 
+          # line, this will overwrite it.
+          server_def.merge!(:user_data => bootstrap_script)
         end
 
         if config[:ebs_optimized]
