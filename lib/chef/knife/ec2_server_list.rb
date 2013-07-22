@@ -163,6 +163,10 @@ class Chef
         ].flatten.compact
         
         output_column_count = server_list.length
+
+        if config[:vpc]
+          @vpcs = connection.vpcs.all
+        end
         
         if !config[:region]
           ui.warn "No region was specified in knife.rb or as an argument. The default region, us-east-1, will be used:"
@@ -216,7 +220,11 @@ class Chef
           end
 
           if config[:vpc]
-            server_list << server.vpc_id.to_s
+            if server.vpc_id
+              server_list << vpc_with_name(server.vpc_id.to_s)
+            else
+              server_list << "-"
+            end
           end
 
           server_list << iam_name_from_profile(server.iam_instance_profile)
