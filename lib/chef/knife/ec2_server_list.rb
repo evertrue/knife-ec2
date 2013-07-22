@@ -103,6 +103,16 @@ class Chef
         }
       end
 
+      def vpc_with_name(vpc_id)
+        this_vpc = @vpcs.select{|v| v.id == vpc_id }.first
+        if this_vpc.tags["Name"]
+          vpc_name = this_vpc.tags["Name"]
+          "#{vpc_name} (#{vpc_id})"
+        else
+          vpc_id
+        end
+      end
+
       def run
         $stdout.sync = true
 
@@ -151,6 +161,10 @@ class Chef
         ].flatten.compact
         
         output_column_count = server_list.length
+
+        if config[:vpc]
+          @vpcs = connection.vpcs.all
+        end
         
         connection.servers.all.each do |server|
           server_list << server.id.to_s
@@ -200,7 +214,11 @@ class Chef
           end
 
           if config[:vpc]
-            server_list << server.vpc_id.to_s
+            if server.vpc_id
+              server_list << vpc_with_name(server.vpc_id.to_s)
+            else
+              server_list << "-"
+            end
           end
           
           server_list << begin
