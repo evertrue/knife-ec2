@@ -270,12 +270,104 @@ class Chef
         :description => "Bucket to use for storing the bootstrap template (in the format: BUCKET/PATH)",
         :proc => Proc.new { |m| Chef::Config[:knife][:s3_bootstrap_bucket] = m }
 
+<<<<<<< HEAD
+=======
       option :monitoring,
         :long => "--enable-monitoring",
         :short => "-m",
         :description => "Enables CloudWatch or other local monitoring",
         :proc => Proc.new { |m| Chef::Config[:knife][:monitoring] = m }
 
+    def tcp_test_winrm(ip_addr, port)
+      tcp_socket = TCPSocket.new(ip_addr, port)
+      yield
+      true
+      rescue SocketError
+        sleep 2
+        false
+      rescue Errno::ETIMEDOUT
+        false
+      rescue Errno::EPERM
+        false
+      rescue Errno::ECONNREFUSED
+        sleep 2
+        false
+      rescue Errno::EHOSTUNREACH
+        sleep 2
+        false
+      rescue Errno::ENETUNREACH
+        sleep 2
+        false
+        ensure
+        tcp_socket && tcp_socket.close
+    end
+
+      def tcp_test_ssh(hostname, ssh_port)
+        tcp_socket = TCPSocket.new(hostname, ssh_port)
+        readable = IO.select([tcp_socket], nil, nil, 5)
+        if readable
+          Chef::Log.debug("sshd accepting connections on #{hostname}, banner is #{tcp_socket.gets}")
+          yield
+          true
+        else
+          false
+        end
+      rescue SocketError, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ENETUNREACH, IOError
+        sleep 2
+        false
+      rescue Errno::EPERM, Errno::ETIMEDOUT
+        false
+      ensure
+        tcp_socket && tcp_socket.close
+      end
+
+      def decrypt_admin_password(encoded_password, key)
+        require 'base64'
+        require 'openssl'
+        private_key = OpenSSL::PKey::RSA.new(key)
+        encrypted_password = Base64.decode64(encoded_password)
+        password = private_key.private_decrypt(encrypted_password)
+        password
+      end
+
+      def check_windows_password_available(server_id)
+        response = connection.get_password_data(server_id)
+        if not response.body["passwordData"]
+          return false
+        end
+        response.body["passwordData"]
+      end
+
+      def windows_password
+        if not locate_config_value(:winrm_password)
+          if locate_config_value(:identity_file)
+            print "\n#{ui.color("Waiting for Windows Admin password to be available", :magenta)}"
+            print(".") until check_windows_password_available(@server.id) {
+              sleep 1000 #typically is available after 30 mins
+              puts("done")
+            }
+            response = connection.get_password_data(@server.id)
+            data = File.read(locate_config_value(:identity_file))
+            config[:winrm_password] = decrypt_admin_password(response.body["passwordData"], data)
+          else
+            ui.error("Cannot find SSH Identity file, required to fetch dynamically generated password")
+            exit 1
+          end
+        else
+          locate_config_value(:winrm_password)
+        end
+      end
+
+      def load_winrm_deps
+        require 'winrm'
+        require 'em-winrm'
+        require 'chef/knife/winrm'
+        require 'chef/knife/bootstrap_windows_winrm'
+        require 'chef/knife/bootstrap_windows_ssh'
+        require 'chef/knife/core/windows_bootstrap_context'
+      end
+
+>>>>>>> 98927a9... Add auto monitoring config; Fix subnet parser to always show subnet with deviceindex 1
       def run
         $stdout.sync = true
 
@@ -382,12 +474,12 @@ class Chef
             }
             ssh_override_winrm
           end
-          bootstrap_for_windows_node(@server, ssh_connect_host).run
+          bootstrap_for_windows_node(@server,ssh_connect_host).run
         elsif ! config[:no_ssh_bootstrap]
           print "\n#{ui.color("Waiting for sshd", :magenta)}"
           wait_for_sshd(ssh_connect_host)
           ssh_override_winrm
-          bootstrap_for_linux_node(@server, ssh_connect_host).run
+          bootstrap_for_linux_node(@server,ssh_connect_host).run
         end
 
         configure_monitoring(@server) if config[:monitoring]
@@ -563,7 +655,7 @@ class Chef
         super([:image, :aws_ssh_key_id, :aws_access_key_id, :aws_secret_access_key])
 
         if ami.nil?
-          ui.error("You have not provided a valid image (AMI) value.")
+          ui.error("You have not provided a valid image (AMI) value.  Please note the short option for this value recently changed from '-i' to '-I'.")
           exit 1
         end
 
