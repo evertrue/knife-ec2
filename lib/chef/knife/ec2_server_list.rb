@@ -98,7 +98,7 @@ class Chef
       end
 
       def groups_with_ids(groups)
-        groups.map{|g| 
+        groups.map{|g|
           "#{g} (#{@group_id_hash[g]})"
         }
       end
@@ -118,13 +118,15 @@ class Chef
 
         validate!
 
-        @group_id_hash = Hash[connection.security_groups.map{|g| 
+        @group_id_hash = Hash[connection.security_groups.map{|g|
           [g.group_id, g.name]
         }]
 
+        network_interfaces = connection.network_interfaces
+
         server_list = [
           ui.color('Instance ID', :bold),
-        
+
           if config[:name]
             ui.color("Name", :bold)
           end,
@@ -146,7 +148,7 @@ class Chef
           end,
 
           ui.color('Security Groups', :bold),
-          
+
           if config[:tags]
             config[:tags].split(",").collect do |tag_name|
               ui.color("Tag:#{tag_name}", :bold)
@@ -161,7 +163,7 @@ class Chef
           
           ui.color('State', :bold)
         ].flatten.compact
-        
+
         output_column_count = server_list.length
 
         if config[:vpc]
@@ -174,19 +176,35 @@ class Chef
         
         connection.servers.all.each do |server|
           server_list << server.id.to_s
-          
+
           if config[:name]
             server_list << server.tags["Name"].to_s
           end
-          
+
           server_list << server.public_ip_address.to_s
 
           if server.subnet_id
-            server_list << "#{server.subnet_id}/#{server.private_ip_address}"
+
+            first_subnet = server.network_interfaces.select do |ni|
+              ni['networkInterfaceId']
+            end.select do |ni|
+
+              network_interfaces.select do |sni|
+                sni.attachment &&
+                sni.network_interface_id == ni['networkInterfaceId']
+              end.first.attachment['deviceIndex'] == '0'
+
+            end.first
+
+            private_ip = network_interfaces.select do |ni|
+              ni.network_interface_id == first_subnet['networkInterfaceId']
+            end.first.private_ip_address
+
+            server_list << "#{first_subnet['subnetId']}/#{private_ip}"
           else
             server_list << server.private_ip_address.to_s
           end
-          
+
           server_list << ui.color(
                                   server.flavor_id.to_s,
                                   fcolor(server.flavor_id.to_s)
@@ -212,7 +230,7 @@ class Chef
           else
             server_list << server.groups.join(", ")
           end
-          
+
           if config[:tags]
             config[:tags].split(",").each do |tag_name|
               server_list << server.tags[tag_name].to_s
