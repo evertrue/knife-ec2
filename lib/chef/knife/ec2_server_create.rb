@@ -234,6 +234,12 @@ class Chef
         :description => "Bucket to use for storing the bootstrap template (in the format: BUCKET/PATH)",
         :proc => Proc.new { |m| Chef::Config[:knife][:s3_bootstrap_bucket] = m }
 
+      option :monitoring,
+        :long => "--enable-monitoring",
+        :short => "-m",
+        :description => "Enables CloudWatch or other local monitoring",
+        :proc => Proc.new { |m| Chef::Config[:knife][:monitoring] = m }
+
     def tcp_test_winrm(ip_addr, port)
       tcp_socket = TCPSocket.new(ip_addr, port)
       yield
@@ -373,7 +379,7 @@ class Chef
         puts("\n")
 
         # occasionally 'ready?' isn't, so retry a couple times if needed.
-        tries = 6 
+        tries = 6
         begin
           create_tags(hashed_tags) unless hashed_tags.empty?
           associate_eip(elastic_ip) if config[:associate_eip]
@@ -395,7 +401,6 @@ class Chef
           msg_pair("Private DNS Name", @server.private_dns_name)
         end
         msg_pair("Private IP Address", @server.private_ip_address)
-
 
         #Check if Server is Windows or Linux
         if is_image_windows?
@@ -424,6 +429,8 @@ class Chef
             wait_for_sshd(ssh_connect_host)
             bootstrap_for_linux_node(@server,ssh_connect_host).run
         end
+
+        configure_monitoring(@server) if config[:monitoring]
 
         puts "\n"
         msg_pair("Instance ID", @server.id)
@@ -539,6 +546,45 @@ class Chef
         bootstrap_common_params(bootstrap)
       end
 
+      def configure_monitoring(server)
+
+        # This adds a CloudWatch alert which sends a notification to
+        # the EC2_Status_Check "topic" (which emails it.alerts@where.com)
+        # if the instance is either down or its state is unreadable.
+
+        hostname = server.tags["Name"].gsub(/\./,"_")
+        aws_owner_id = Chef::Config[:knife][:aws_owner_id]
+        region = connection.instance_variable_get(:@region)
+
+        case
+        when Chef::Config[:knife][:cloudwatch]
+
+          cw = Fog::AWS::CloudWatch.new
+
+          Chef::Config[:knife][:cloudwatch].each do |cw_alarm|
+
+            cw_alarm["AlarmName"] = "EC2 #{hostname} (#{server.id}) " +
+              cw_alarm["AlarmName"],
+            cw_alarm["AlarmActions"] = Chef::Config[:knife][:cloudwatch][:alarm_action],
+            cw_alarm["AlarmDescription"] = "Created with knife aws ec2 " +
+              "server create",
+            cw_alarm["Dimensions"] = [{"Value" => server.id, "Name" => "InstanceId"}],
+            cw_alarm["Namespace"] = "AWS/EC2"
+
+            cw.put_metric_alarm( cw_alarm )
+
+          end
+
+        else
+
+          ui.error("You have elected to use server monitoring but do not " +
+            "have any monitoring config in your knife.rb file.")
+          exit 1
+
+        end
+
+      end
+
       def vpc_mode?
         # Amazon Virtual Private Cloud requires a subnet_id. If
         # present, do a few things differently
@@ -651,16 +697,16 @@ class Chef
         # bootstrap_for_linux_node doesn't actually bootstrap.
         # Instead, it just gathers the bootstrap configuration,
         # which we will use to render the template for passing as
-        # user data.  We then need to prepend a shebang in order for 
+        # user data.  We then need to prepend a shebang in order for
         # Cloud Init to interpret it as a shell script.
-        
+
         bootstrap = bootstrap_for_linux_node
 
         # Since user_data cannot be deleted once an instance is created
         # we're going to push the rendered_template (which contains
-        # sensitive data, and a prepended shebang so that Cloud Init 
-        # will know that it's a shell script) to S3 and get back 
-        # a signed, temporary URL which we will then send to the 
+        # sensitive data, and a prepended shebang so that Cloud Init
+        # will know that it's a shell script) to S3 and get back
+        # a signed, temporary URL which we will then send to the
         # server.
         template_s3_url = template_s3_push("#!/bin/bash\n\n" + rendered_template(bootstrap))
 
@@ -691,8 +737,8 @@ class Chef
         end
 
         if config[:no_ssh_bootstrap]
-          # Merge bootstrap_script into server_def.  If someone 
-          # defined user_data in their knife.rb or via the command 
+          # Merge bootstrap_script into server_def.  If someone
+          # defined user_data in their knife.rb or via the command
           # line, this will overwrite it.
           server_def.merge!(:user_data => bootstrap_script)
         end
