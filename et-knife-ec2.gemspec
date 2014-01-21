@@ -1,16 +1,16 @@
 # -*- encoding: utf-8 -*-
 $:.push File.expand_path('../lib', __FILE__)
-require 'knife-ec2/version'
+require 'et-knife-ec2/version'
 
 Gem::Specification.new do |s|
-  s.name         = 'knife-ec2'
-  s.version      = Knife::Ec2::VERSION
-  s.authors      = ['Adam Jacob', 'Seth Chisamore']
-  s.email        = ['adam@opscode.com', 'schisamo@opscode.com']
-  s.homepage     = 'https://github.com/opscode/knife-ec2'
-  s.summary      = %q{EC2 Support for Chef's Knife Command}
-  s.description  = s.summary
-  s.license      = 'Apache 2.0'
+  s.name        = 'et-knife-ec2'
+  s.version     = Knife::Ec2::VERSION
+  s.authors     = ['Eric Herot']
+  s.email       = ['eric.herot@evertrue.com']
+  s.homepage    = 'http://wiki.opscode.com/display/chef'
+  s.summary     = %q{EC2 Support for Chef's Knife Command}
+  s.description = s.summary
+  s.license     = 'Apache 2.0'
 
   s.files        = `git ls-files`.split("\n")
   s.test_files   = `git ls-files -- {test,spec,features}/*`.split("\n")
