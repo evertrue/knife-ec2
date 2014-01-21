@@ -18,6 +18,19 @@
 # limitations under the License.
 #
 
+# Gemfury
+require 'bundler/gem_tasks'
+require 'rubygems/builder'
+require 'gemfury'
+require 'gemfury/command'
+module Bundler
+  class GemHelper
+    def rubygem_push(path)
+      ::Gemfury::Command::App.start(['push', path])
+    end
+  end
+end
+
 require 'bundler'
 Bundler::GemHelper.install_tasks
 
