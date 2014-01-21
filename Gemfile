@@ -1,4 +1,4 @@
-source "http://rubygems.org"
+source "https://#{ENV['GEMSPEC_KEY']}@gem.fury.io/me/"
 
 # Specify your gem's dependencies in knife-rackspace.gemspec
 gemspec
