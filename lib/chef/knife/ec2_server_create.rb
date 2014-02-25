@@ -220,7 +220,7 @@ class Chef
       option :server_connect_attribute,
         :long => "--server-connect-attribute ATTRIBUTE",
         :short => "-a ATTRIBUTE",
-        :description => "The EC2 server attribute to use for SSH connection",
+        :description => "The EC2 server attribute to use for the SSH hostname (eg - public_ip_address)",
         :default => nil
 
       option :no_ssh_bootstrap,
@@ -788,6 +788,7 @@ class Chef
       end
 
       def wait_for_tunnelled_sshd(hostname)
+        print "\n#{ui.color("Waiting for tunnelled sshd", :magenta)}"
         print(".")
         print(".") until tunnel_test_ssh(ssh_connect_host) {
           sleep @initial_sleep_delay ||= (vpc_mode? ? 40 : 10)
@@ -812,6 +813,8 @@ class Chef
       end
 
       def wait_for_direct_sshd(hostname, ssh_port)
+        print "\n#{ui.color("Waiting for direct sshd to " +
+          "#{ssh_connect_host}:#{ssh_port}", :magenta)}"
         print(".") until tcp_test_ssh(ssh_connect_host, ssh_port) {
           sleep @initial_sleep_delay ||= (vpc_mode? ? 40 : 10)
           puts("done")
