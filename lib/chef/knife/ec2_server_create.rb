@@ -766,6 +766,7 @@ class Chef
       end
 
       def wait_for_tunnelled_sshd(hostname)
+        print "\n#{ui.color("Waiting for tunnelled sshd", :magenta)}"
         initial = true
         print(".") until tunnel_test_ssh(hostname) {
           if initial
@@ -796,6 +797,8 @@ class Chef
 
       def wait_for_direct_sshd(hostname, ssh_port)
         initial = true
+        print "\n#{ui.color("Waiting for direct sshd to " +
+          "#{hostname}:#{ssh_port}", :magenta)}"
         print(".") until tcp_test_ssh(hostname, ssh_port) {
           if initial
             initial = false
