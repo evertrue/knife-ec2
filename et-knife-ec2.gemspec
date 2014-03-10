@@ -1,5 +1,5 @@
 # -*- encoding: utf-8 -*-
-$:.push File.expand_path('../lib', __FILE__)
+$LOAD_PATH.push File.expand_path('../lib', __FILE__)
 require 'et-knife-ec2/version'
 
 Gem::Specification.new do |s|
@@ -12,13 +12,13 @@ Gem::Specification.new do |s|
   s.description = s.summary
   s.license     = 'Apache 2.0'
 
-  s.files        = `git ls-files`.split("\n")
-  s.test_files   = `git ls-files -- {test,spec,features}/*`.split("\n")
-  s.executables  = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }
+  s.files        = `git ls-files`.split('\n')
+  s.test_files   = `git ls-files -- {test,spec,features}/*`.split('\n')
+  s.executables  = `git ls-files -- bin/*`.split('\n').map { |f| File.basename(f) }
 
   s.add_dependency 'fog',           '~> 1.20.0'
   s.add_dependency 'knife-windows', '>= 0.5.12'
-  s.add_dependency "aws-s3"
+  s.add_dependency 'aws-s3',        '~> 0.6.3'
 
   s.add_development_dependency 'mixlib-config', '~> 2.0'
   s.add_development_dependency 'chef',          '>= 0.10.10'
@@ -28,4 +28,3 @@ Gem::Specification.new do |s|
 
   s.require_paths = ['lib']
 end
-
