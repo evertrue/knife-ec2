@@ -6,4 +6,5 @@ gemspec
 
 group :development do
   gem 'rspec', '~> 2.7.0'
+  gem 'gemfury', '~> 0.4.3'
 end
