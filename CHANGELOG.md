@@ -8,6 +8,11 @@ prior to release 0.8.0, please visit the [source repository](https://github.com/
 
 None.
 
+## 1.1.0 (2014-03-26)
+
+* Includes all EverTrue changes, plus all changes of 0.8.0 (see below).
+    * See https://github.com/evertrue/knife-ec2/compare/v0.6.5...v1.1.0 for complete changeset
+
 ## Last release: 0.8.0 (2014-03-10)
 
 * [KNIFE-458](https://tickets.opscode.com/browse/KNIFE-458) Docs: Increase detail about necessary
