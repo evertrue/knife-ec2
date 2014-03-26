@@ -22,6 +22,7 @@ require 'bundler'
 
 # Gemfury
 require 'gemfury'
+require 'gemfury/command'
 
 # Override rubygem_push to push to gemfury instead when doing `rake release`
 module Bundler
