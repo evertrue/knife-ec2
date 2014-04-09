@@ -170,7 +170,20 @@ class Chef
         ui.warn 'No region was specified in knife.rb or as an argument. The ' \
           'default region, us-east-1, will be used:' unless config[:region]
 
-        connection.servers.all.each do |server|
+        all_servers = connection.servers.all
+
+        if @name_args.empty?
+          servers = all_servers
+        else
+          servers = []
+          @name_args.each do |n_a|
+            all_servers.select do |s|
+              servers << s if s.tags['Name'] =~ /#{n_a}/
+            end
+          end
+        end
+
+        servers.each do |server|
           server_list << server.id.to_s
           server_list << server.tags['Name'].to_s if config[:name]
           server_list << server.public_ip_address.to_s
