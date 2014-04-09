@@ -22,91 +22,90 @@ require 'chef/knife/ec2_base'
 class Chef
   class Knife
     class Ec2ServerList < Knife
-
       include Knife::Ec2Base
 
-      banner "knife ec2 server list (options)"
+      banner 'knife ec2 server list (options)'
 
       option :name,
-        :short => "-n",
-        :long => "--no-name",
-        :boolean => true,
-        :default => true,
-        :description => "Do not display name tag in output"
+             short: '-n',
+             long: '--no-name',
+             boolean: true,
+             default: true,
+             description: 'Do not display name tag in output'
 
       option :az,
-        :short => "-z",
-        :long => "--availability-zone",
-        :boolean => true,
-        :default => false,
-        :description => "Show availability zones"
+             short: '-z',
+             long: '--availability-zone',
+             boolean: true,
+             default: false,
+             description: 'Show availability zones'
 
       option :vpc,
-        :short => "-v",
-        :long => "--vpc",
-        :boolean => true,
-        :default => false,
-        :description => "Show VPC ID"
+             short: '-v',
+             long: '--vpc',
+             boolean: true,
+             default: false,
+             description: 'Show VPC ID'
 
       option :key,
-        :long => "--no-key",
-        :boolean => true,
-        :default => true,
-        :description => "Disable displaying SSH key"
+             long: '--no-key',
+             boolean: true,
+             default: true,
+             description: 'Disable displaying SSH key'
 
       option :image,
-        :long => "--no-image",
-        :boolean => true,
-        :default => true,
-        :description => "Disable displaying AMI"
+             long: '--no-image',
+             boolean: true,
+             default: true,
+             description: 'Disable displaying AMI'
 
       option :tags,
-        :short => "-t TAG1,TAG2",
-        :long => "--tags TAG1,TAG2",
-        :description => "List of tags to output"
+             short: '-t TAG1,TAG2',
+             long: '--tags TAG1,TAG2',
+             description: 'List of tags to output'
 
       def fcolor(flavor)
         case flavor
-        when "t1.micro"
-          fcolor = :blue
-        when "m1.small"
-          fcolor = :magenta
-        when "m1.medium"
-          fcolor = :cyan
-        when "m1.large"
-          fcolor = :green
-        when "m1.xlarge"
-          fcolor = :red
+        when 't1.micro'
+          :blue
+        when 'm1.small'
+          :magenta
+        when 'm1.medium'
+          :cyan
+        when 'm1.large'
+          :green
+        when 'm1.xlarge'
+          :red
         else
-          fcolor = :black
+          :black
         end
       end
 
       def azcolor(az)
         case az
         when /a$/
-          color = :blue
+          :blue
         when /b$/
-          color = :green
+          :green
         when /c$/
-          color = :red
+          :red
         when /d$/
-          color = :magenta
+          :magenta
         else
-          color = :cyan
+          :cyan
         end
       end
 
       def groups_with_ids(groups)
-        groups.map{|g|
+        groups.map do|g|
           "#{g} (#{@group_id_hash[g]})"
-        }
+        end
       end
 
       def vpc_with_name(vpc_id)
-        this_vpc = @vpcs.select{|v| v.id == vpc_id }.first
-        if this_vpc.tags["Name"]
-          vpc_name = this_vpc.tags["Name"]
+        this_vpc = @vpcs.select { |v| v.id == vpc_id }.first
+        if this_vpc.tags['Name']
+          vpc_name = this_vpc.tags['Name']
           "#{vpc_name} (#{vpc_id})"
         else
           vpc_id
@@ -118,9 +117,9 @@ class Chef
 
         validate!
 
-        @group_id_hash = Hash[connection.security_groups.map{|g|
+        @group_id_hash = Hash[connection.security_groups.map do |g|
           [g.group_id, g.name]
-        }]
+        end]
 
         network_interfaces = connection.network_interfaces
 
@@ -128,7 +127,7 @@ class Chef
           ui.color('Instance ID', :bold),
 
           if config[:name]
-            ui.color("Name", :bold)
+            ui.color('Name', :bold)
           end,
 
           ui.color('Public IP', :bold),
@@ -150,7 +149,7 @@ class Chef
           ui.color('Security Groups', :bold),
 
           if config[:tags]
-            config[:tags].split(",").collect do |tag_name|
+            config[:tags].split(',').map do |tag_name|
               ui.color("Tag:#{tag_name}", :bold)
             end
           end,
@@ -160,40 +159,30 @@ class Chef
           end,
 
           ui.color('IAM Profile', :bold),
-          
+
           ui.color('State', :bold)
         ].flatten.compact
 
         output_column_count = server_list.length
 
-        if config[:vpc]
-          @vpcs = connection.vpcs.all
-        end
-        
-        if !config[:region]
-          ui.warn "No region was specified in knife.rb or as an argument. The default region, us-east-1, will be used:"
-        end
-        
+        @vpcs = connection.vpcs.all if config[:vpc]
+
+        ui.warn 'No region was specified in knife.rb or as an argument. The ' \
+          'default region, us-east-1, will be used:' unless config[:region]
+
         connection.servers.all.each do |server|
           server_list << server.id.to_s
-
-          if config[:name]
-            server_list << server.tags["Name"].to_s
-          end
-
+          server_list << server.tags['Name'].to_s if config[:name]
           server_list << server.public_ip_address.to_s
 
           if server.subnet_id
-
             first_subnet = server.network_interfaces.select do |ni|
               ni['networkInterfaceId']
             end.select do |ni|
-
               network_interfaces.select do |sni|
                 sni.attachment &&
                 sni.network_interface_id == ni['networkInterfaceId']
               end.first.attachment['deviceIndex'] == '0'
-
             end.first
 
             private_ip = network_interfaces.select do |ni|
@@ -217,40 +206,28 @@ class Chef
                               )
           end
 
-          if config[:image]
-            server_list << server.image_id.to_s
-          end
-
-          if config[:key]
-            server_list << server.key_name.to_s
-          end
+          server_list << server.image_id.to_s if config[:image]
+          server_list << server.key_name.to_s if config[:key]
 
           if server.vpc_id
-            server_list << groups_with_ids(server.security_group_ids).join(", ")
+            server_list << groups_with_ids(server.security_group_ids).join(', ')
           else
-            server_list << server.groups.join(", ")
+            server_list << server.groups.join(', ')
           end
 
           if config[:tags]
-            config[:tags].split(",").each do |tag_name|
+            config[:tags].split(',').each do |tag_name|
               server_list << server.tags[tag_name].to_s
             end
           end
 
-          if config[:vpc]
-            if server.vpc_id
-              server_list << vpc_with_name(server.vpc_id.to_s)
-            else
-              server_list << "-"
-            end
-          end
-
+          server_list << server.vpc_id ? vpc_with_name(server.vpc_id.to_s) : '-' if config[:vpc]
           server_list << iam_name_from_profile(server.iam_instance_profile)
-          
+
           server_list << begin
             state = server.state.to_s.downcase
             case state
-            when 'shutting-down','terminated','stopping','stopped'
+            when 'shutting-down', 'terminated', 'stopping', 'stopped'
               ui.color(state, :red)
             when 'pending'
               ui.color(state, :yellow)
@@ -261,7 +238,6 @@ class Chef
         end
 
         puts ui.list(server_list, :uneven_columns_across, output_column_count)
-
       end
     end
   end
