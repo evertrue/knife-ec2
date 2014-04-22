@@ -5,6 +5,6 @@ source 'http://rubygems.org'
 gemspec
 
 group :development do
-  gem 'rspec', '~> 2.7.0'
-  gem 'gemfury', '~> 0.4.3'
+  gem 'rspec', '> 2.7'
+  gem 'gemfury', '> 0.4'
 end
