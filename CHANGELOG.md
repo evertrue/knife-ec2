@@ -8,12 +8,21 @@ prior to release 0.8.0, please visit the [source repository](https://github.com/
 
 None.
 
+## Last release: 1.2.1 (2014-04-22)
+
+* Add nil check to vpc tag getter
+
+## 1.2.0 (2014-04-09)
+
+* Add filter for server list
+* Linting cleanup of ec2 server list
+
 ## 1.1.0 (2014-03-26)
 
 * Includes all EverTrue changes, plus all changes of 0.8.0 (see below).
     * See https://github.com/evertrue/knife-ec2/compare/v0.6.5...v1.1.0 for complete changeset
 
-## Last release: 0.8.0 (2014-03-10)
+## 0.8.0 (2014-03-10)
 
 * [KNIFE-458](https://tickets.opscode.com/browse/KNIFE-458) Docs: Increase detail about necessary
   options for VPC instance creation
