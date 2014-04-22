@@ -104,7 +104,7 @@ class Chef
 
       def vpc_with_name(vpc_id)
         this_vpc = @vpcs.select { |v| v.id == vpc_id }.first
-        if this_vpc.tags['Name']
+        if !this_vpc.nil? && this_vpc.tags['Name']
           vpc_name = this_vpc.tags['Name']
           "#{vpc_name} (#{vpc_id})"
         else
