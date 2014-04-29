@@ -197,9 +197,10 @@ class Chef
         :proc => lambda { |o| JSON.parse(o) }
 
       option :subnet_id,
-        :short => "-s SUBNET-ID",
-        :long => "--subnet SUBNET-ID",
-        :description => "create node in this Virtual Private Cloud Subnet ID (implies VPC mode)",
+        :short => "-s SUBNET-ID/NAME",
+        :long => "--subnet SUBNET-ID/NAME",
+        :description => "create node in this Virtual Private Cloud Subnet ID " \
+          "or Name tag (implies VPC mode)",
         :proc => Proc.new { |key| Chef::Config[:knife][:subnet_id] = key }
 
       option :private_ip_address,
@@ -690,6 +691,15 @@ class Chef
         bootstrap_script = "#include\n\n#{template_s3_url}"
       end
 
+      def resolve_subnet(subnet_value)
+        fail 'Subnet required but not specified' if subnet_value.nil?
+        return subnet_value if subnet_value =~ /^subnet-[0-9a-z]{8,}/
+
+        results = connection.subnets.select { |sn| sn.tag_set['Name'] == subnet_value }
+        fail "#{subnet_value} refers to multiple subnet groups" if results.count > 1
+        results.first.subnet_id
+      end
+
       def create_server_def
         server_def = {
           :image_id => locate_config_value(:image),
@@ -699,7 +709,8 @@ class Chef
           :key_name => Chef::Config[:knife][:aws_ssh_key_id],
           :availability_zone => locate_config_value(:availability_zone)
         }
-        server_def[:subnet_id] = locate_config_value(:subnet_id) if vpc_mode?
+
+        server_def[:subnet_id] = resolve_subnet(locate_config_value(:subnet_id)) if vpc_mode?
         server_def[:private_ip_address] = locate_config_value(:private_ip_address) if vpc_mode?
         server_def[:placement_group] = locate_config_value(:placement_group)
         server_def[:iam_instance_profile_name] = locate_config_value(:iam_instance_profile)

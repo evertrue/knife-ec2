@@ -38,6 +38,18 @@ describe Chef::Knife::Ec2ServerCreate do
     end
 
     @ec2_connection = double(Fog::Compute::AWS)
+    @ec2_connection.stub_chain(:subnets).and_return [
+      double('subnets', {
+          tag_set: { 'Name' => 'test-subnet' },
+          subnet_id: 'subnet-1a2b3c4d'
+        }
+      ),
+      double('subnets', {
+          tag_set: { 'Name' => 'test-subnet-2' },
+          subnet_id: 'subnet-abcd1234'
+        }
+      )
+    ]
     @ec2_connection.stub_chain(:tags).and_return double('create', :create => true)
     @ec2_connection.stub_chain(:images, :get).and_return double('ami', :root_device_type => 'not_ebs', :platform => 'linux')
     @ec2_connection.stub_chain(:addresses).and_return [double('addesses', {
@@ -666,9 +678,10 @@ describe Chef::Knife::Ec2ServerCreate do
     end
     
     it 'Set Tenancy Dedicated when both VPC mode and Flag is True' do
+      @knife_ec2_create.config[:subnet_id] = 'subnet-1a2b3c4d'
       @knife_ec2_create.config[:dedicated_instance] = true
       @knife_ec2_create.stub(:vpc_mode? => true)
-      
+
       server_def = @knife_ec2_create.create_server_def
       server_def[:tenancy].should == "dedicated"
     end
@@ -681,6 +694,7 @@ describe Chef::Knife::Ec2ServerCreate do
     end
     
     it 'Tenancy should be default with vpc but not requested' do
+      @knife_ec2_create.config[:subnet_id] = 'subnet-1a2b3c4d'
       @knife_ec2_create.stub(:vpc_mode? => true)
       
       server_def = @knife_ec2_create.create_server_def
@@ -694,6 +708,15 @@ describe Chef::Knife::Ec2ServerCreate do
 
       server_def[:subnet_id].should == 'subnet-1a2b3c4d'
       server_def[:associate_public_ip].should == true
+    end
+
+    it 'Resolves a subnet id as the same subnet id' do
+      subnet_id = 'subnet-a1b2c3d4'
+      @knife_ec2_create.resolve_subnet(subnet_id).should == subnet_id
+    end
+
+    it 'Resolves a subnet name into a subnet id' do
+      @knife_ec2_create.resolve_subnet('test-subnet').should == 'subnet-1a2b3c4d'
     end
   end
 
