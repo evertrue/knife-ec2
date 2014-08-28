@@ -17,6 +17,9 @@
 #
 
 require File.expand_path('../../spec_helper', __FILE__)
+require 'net/ssh/proxy/http'
+require 'net/ssh/proxy/command'
+require 'net/ssh/gateway'
 require 'fog'
 require 'chef/knife/bootstrap'
 require 'chef/knife/bootstrap_windows_winrm'
@@ -522,12 +525,23 @@ describe Chef::Knife::Ec2ServerCreate do
     it "configures sets the bootstrap's run_list" do
       @bootstrap.config[:run_list].should == ['role[base]']
     end
+
+    it "configures auth_timeout for bootstrap to default to 25 minutes" do
+      expect(@knife_ec2_create.options[:auth_timeout][:default]).to eq(25)
+    end
+
+    it "configures auth_timeout for bootstrap according to plugin auth_timeout config" do
+      @knife_ec2_create.config[:auth_timeout] = 5
+      bootstrap = @knife_ec2_create.bootstrap_for_windows_node(@new_ec2_server, @new_ec2_server.dns_name)
+      expect(bootstrap.config[:auth_timeout]).to eq(5)
+    end
  end
 
   describe "when validating the command-line parameters" do
     before do
       Fog::Compute::AWS.stub(:new).and_return(@ec2_connection)
       @knife_ec2_create.ui.stub(:error)
+      @knife_ec2_create.ui.stub(:msg)
     end
 
     describe "when reading aws_credential_file" do 
@@ -583,6 +597,42 @@ describe Chef::Knife::Ec2ServerCreate do
       @knife_ec2_create.config[:subnet_id] = nil
 
       lambda { @knife_ec2_create.validate! }.should raise_error SystemExit
+    end
+
+    it "disallows ebs provisioned iops option when not using ebs volume type" do
+      @knife_ec2_create.config[:ebs_provisioned_iops] = "123"
+      @knife_ec2_create.config[:ebs_volume_type] = nil
+
+      lambda { @knife_ec2_create.validate! }.should raise_error SystemExit
+    end
+
+    it "disallows ebs provisioned iops option when not using ebs volume type 'io1'" do
+      @knife_ec2_create.config[:ebs_provisioned_iops] = "123"
+      @knife_ec2_create.config[:ebs_volume_type] = "standard"
+
+      lambda { @knife_ec2_create.validate! }.should raise_error SystemExit
+    end
+
+    it "disallows ebs volume type if its other than 'io1' or 'gp2' or 'standard'" do
+      @knife_ec2_create.config[:ebs_provisioned_iops] = "123"
+      @knife_ec2_create.config[:ebs_volume_type] = 'invalid'
+
+      lambda { @knife_ec2_create.validate! }.should raise_error SystemExit
+    end
+
+    it "disallows 'io1' ebs volume type when not using ebs provisioned iops" do
+      @knife_ec2_create.config[:ebs_provisioned_iops] = nil
+      @knife_ec2_create.config[:ebs_volume_type] = 'io1'
+
+      lambda { @knife_ec2_create.validate! }.should raise_error SystemExit
+    end
+  end
+
+  describe "when creating the connection" do
+    it "uses aws_session_token value from the --aws-session-token option" do
+      @knife_ec2_create.config[:aws_session_token] = 'session-token'
+      Fog::Compute::AWS.should_receive(:new).with(hash_including(:aws_session_token => 'session-token')).and_return(@ec2_connection)
+      @knife_ec2_create.connection
     end
   end
 
@@ -718,6 +768,108 @@ describe Chef::Knife::Ec2ServerCreate do
     it 'Resolves a subnet name into a subnet id' do
       @knife_ec2_create.resolve_subnet('test-subnet').should == 'subnet-1a2b3c4d'
     end
+
+    context "when using ebs volume type and ebs provisioned iops rate options" do
+      before do
+        @knife_ec2_create.stub_chain(:ami, :root_device_type).and_return("ebs")
+        @knife_ec2_create.stub_chain(:ami, :block_device_mapping).and_return([{"iops" => 123}])
+        @knife_ec2_create.stub(:msg)
+        @knife_ec2_create.stub(:puts)
+      end
+
+      it "sets the specified 'standard' ebs volume type" do
+        @knife_ec2_create.config[:ebs_volume_type] = 'standard'
+        server_def = @knife_ec2_create.create_server_def
+
+        server_def[:block_device_mapping].first['Ebs.VolumeType'].should == 'standard'
+      end
+
+      it "sets the specified 'io1' ebs volume type" do
+        @knife_ec2_create.config[:ebs_volume_type] = 'io1'
+        server_def = @knife_ec2_create.create_server_def
+
+        server_def[:block_device_mapping].first['Ebs.VolumeType'].should == 'io1'
+      end
+
+      it "sets the specified 'gp2' ebs volume type" do
+        @knife_ec2_create.config[:ebs_volume_type] = 'gp2'
+        server_def = @knife_ec2_create.create_server_def
+
+        server_def[:block_device_mapping].first['Ebs.VolumeType'].should == 'gp2'
+      end
+
+      it "sets the specified ebs provisioned iops rate" do
+        @knife_ec2_create.config[:ebs_provisioned_iops] = '1234'
+        @knife_ec2_create.config[:ebs_volume_type] = 'io1'
+        server_def = @knife_ec2_create.create_server_def
+
+        server_def[:block_device_mapping].first['Ebs.Iops'].should == '1234'
+      end
+
+      it "disallows non integer ebs provisioned iops rate" do
+        @knife_ec2_create.config[:ebs_provisioned_iops] = "123abcd"
+
+        lambda { @knife_ec2_create.create_server_def }.should raise_error SystemExit
+      end
+
+      it "sets the iops rate from ami" do
+        @knife_ec2_create.config[:ebs_volume_type] = 'io1'
+        server_def = @knife_ec2_create.create_server_def
+
+        server_def[:block_device_mapping].first['Ebs.Iops'].should == '123'
+      end
+    end
+  end
+
+  describe "wait_for_sshd" do
+    let(:gateway) { 'test.gateway.com' }
+    let(:hostname) { 'test.host.com' }
+
+    it "should wait for tunnelled ssh if a ssh gateway is provided" do
+      @knife_ec2_create.stub(:get_ssh_gateway_for).and_return(gateway)
+      @knife_ec2_create.should_receive(:wait_for_tunnelled_sshd).with(gateway, hostname)
+      @knife_ec2_create.wait_for_sshd(hostname)
+    end
+
+    it "should wait for direct ssh if a ssh gateway is not provided" do
+      @knife_ec2_create.stub(:get_ssh_gateway_for).and_return(nil)
+      @knife_ec2_create.config[:ssh_port] = 22
+      @knife_ec2_create.should_receive(:wait_for_direct_sshd).with(hostname, 22)
+      @knife_ec2_create.wait_for_sshd(hostname)
+    end
+  end
+
+  describe "get_ssh_gateway_for" do
+    let(:gateway) { 'test.gateway.com' }
+    let(:hostname) { 'test.host.com' }
+
+    it "should give precedence to the ssh gateway specified in the knife configuration" do
+      Net::SSH::Config.stub(:for).and_return(:proxy => Net::SSH::Proxy::Command.new("ssh some.other.gateway.com nc %h %p"))
+      @knife_ec2_create.config[:ssh_gateway] = gateway
+      @knife_ec2_create.get_ssh_gateway_for(hostname).should == gateway
+    end
+
+    it "should return the ssh gateway specified in the ssh configuration even if the config option is not set" do
+      # This should already be false, but test this explicitly for regression
+      @knife_ec2_create.config[:ssh_gateway] = false
+      Net::SSH::Config.stub(:for).and_return(:proxy => Net::SSH::Proxy::Command.new("ssh #{gateway} nc %h %p"))
+      @knife_ec2_create.get_ssh_gateway_for(hostname).should == gateway
+    end
+
+    it "should return nil if the ssh gateway cannot be parsed from the ssh proxy command" do
+      Net::SSH::Config.stub(:for).and_return(:proxy => Net::SSH::Proxy::Command.new("cannot parse host"))
+      @knife_ec2_create.get_ssh_gateway_for(hostname).should be_nil
+    end
+
+    it "should return nil if the ssh proxy is not a proxy command" do
+      Net::SSH::Config.stub(:for).and_return(:proxy => Net::SSH::Proxy::HTTP.new("httphost.com"))
+      @knife_ec2_create.get_ssh_gateway_for(hostname).should be_nil
+    end
+
+    it "returns nil if the ssh config has no proxy" do
+      Net::SSH::Config.stub(:for).and_return(:user => "darius")
+      @knife_ec2_create.get_ssh_gateway_for(hostname).should be_nil
+    end
   end
 
   describe "ssh_connect_host" do
@@ -748,6 +900,73 @@ describe Chef::Knife::Ec2ServerCreate do
         @knife_ec2_create.config[:server_connect_attribute] = 'custom'
         @knife_ec2_create.ssh_connect_host.should == 'custom'
       end
+    end
+  end
+
+  describe "tunnel_test_ssh" do
+    let(:gateway_host) { 'test.gateway.com' }
+    let(:gateway) { double('gateway') }
+    let(:hostname) { 'test.host.com' }
+    let(:local_port) { 23 }
+
+    before(:each) do
+      @knife_ec2_create.stub(:configure_ssh_gateway).and_return(gateway)
+    end
+
+    it "should test ssh through a gateway" do
+      @knife_ec2_create.config[:ssh_port] = 22
+      gateway.should_receive(:open).with(hostname, 22).and_yield(local_port)
+      @knife_ec2_create.should_receive(:tcp_test_ssh).with('localhost', local_port).and_return(true)
+      @knife_ec2_create.tunnel_test_ssh(gateway_host, hostname).should be_true
+    end
+  end
+
+  describe "configure_ssh_gateway" do
+    let(:gateway_host) { 'test.gateway.com' }
+    let(:gateway_user) { 'gateway_user' }
+
+    it "configures a ssh gateway with no user and the default port when the SSH Config is empty" do
+      Net::SSH::Config.stub(:for).and_return({})
+      Net::SSH::Gateway.should_receive(:new).with(gateway_host, nil, :port => 22)
+      @knife_ec2_create.configure_ssh_gateway(gateway_host)
+    end
+
+    it "configures a ssh gateway with the user specified in the SSH Config" do
+      Net::SSH::Config.stub(:for).and_return({ :user => gateway_user })
+      Net::SSH::Gateway.should_receive(:new).with(gateway_host, gateway_user, :port => 22)
+      @knife_ec2_create.configure_ssh_gateway(gateway_host)
+    end
+
+    it "configures a ssh gateway with the user specified in the ssh gateway string" do
+      Net::SSH::Config.stub(:for).and_return({ :user => gateway_user })
+      Net::SSH::Gateway.should_receive(:new).with(gateway_host, 'override_user', :port => 22)
+      @knife_ec2_create.configure_ssh_gateway("override_user@#{gateway_host}")
+    end
+
+    it "configures a ssh gateway with the port specified in the ssh gateway string" do
+      Net::SSH::Config.stub(:for).and_return({})
+      Net::SSH::Gateway.should_receive(:new).with(gateway_host, nil, :port => '24')
+      @knife_ec2_create.configure_ssh_gateway("#{gateway_host}:24")
+    end
+
+    it "configures a ssh gateway with the keys specified in the SSH Config" do
+      Net::SSH::Config.stub(:for).and_return({ :keys => ['configuredkey'] })
+      Net::SSH::Gateway.should_receive(:new).with(gateway_host, nil, :port => 22, :keys => ['configuredkey'])
+      @knife_ec2_create.configure_ssh_gateway(gateway_host)
+    end
+
+    it "configures the ssh gateway with the key specified on the knife config / command line" do
+      @knife_ec2_create.config[:ssh_gateway_identity] = "/home/fireman/.ssh/gateway.pem"
+      #Net::SSH::Config.stub(:for).and_return({ :keys => ['configuredkey'] })
+      Net::SSH::Gateway.should_receive(:new).with(gateway_host, nil, :port => 22, :keys => ['/home/fireman/.ssh/gateway.pem'])
+      @knife_ec2_create.configure_ssh_gateway(gateway_host)
+    end
+
+    it "prefers the knife config over the ssh config for the gateway keys" do
+      @knife_ec2_create.config[:ssh_gateway_identity] = "/home/fireman/.ssh/gateway.pem"
+      Net::SSH::Config.stub(:for).and_return({ :keys => ['not_this_key_dude'] })
+      Net::SSH::Gateway.should_receive(:new).with(gateway_host, nil, :port => 22, :keys => ['/home/fireman/.ssh/gateway.pem'])
+      @knife_ec2_create.configure_ssh_gateway(gateway_host)
     end
   end
 
