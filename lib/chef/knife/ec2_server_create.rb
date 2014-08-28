@@ -126,8 +126,13 @@ class Chef
       option :ssh_gateway,
         :short => "-w GATEWAY",
         :long => "--ssh-gateway GATEWAY",
-        :description => "The ssh gateway server",
+        :description => "The ssh gateway server. Any proxies configured in your ssh config are automatically used by default.",
         :proc => Proc.new { |key| Chef::Config[:knife][:ssh_gateway] = key }
+
+      option :ssh_gateway_identity,
+        :long => "--ssh-gateway-identity IDENTITY_FILE",
+        :description => "The private key for ssh gateway server",
+        :proc => Proc.new { |key| Chef::Config[:knife][:ssh_gateway_identity] = key }
 
       option :identity_file,
         :short => "-i IDENTITY_FILE",
@@ -260,6 +265,23 @@ class Chef
         :boolean => true,
         :default => false
 
+      option :ebs_volume_type,
+        :long => "--ebs-volume-type TYPE",
+        :description => "Standard or Provisioned (io1) IOPS or General Purpose (gp2)",
+        :proc => Proc.new { |key| Chef::Config[:knife][:ebs_volume_type] = key },
+        :default => "standard"
+
+      option :ebs_provisioned_iops,
+        :long => "--provisioned-iops IOPS",
+        :description => "IOPS rate, only used when ebs volume type is 'io1'",
+        :proc => Proc.new { |key| Chef::Config[:knife][:provisioned_iops] = key },
+        :default => nil
+
+      option :auth_timeout,
+        :long => "--windows-auth-timeout MINUTES",
+        :description => "The maximum time in minutes to wait to for authentication over the transport to the node to succeed. The default value is 25 minutes.",
+        :default => 25
+
       option :no_ssh_bootstrap,
         :long => "--without-ssh",
         :short => "-W",
@@ -322,7 +344,7 @@ class Chef
         msg_pair("Tags", printed_tags)
         msg_pair("SSH Key", @server.key_name)
 
-        print "\n#{ui.color("Waiting for instance", :magenta)}"
+        print "\n#{ui.color("Waiting for EC2 to create the instance", :magenta)}"
 
         # wait for instance to come up before acting against it
         @server.wait_for { print "."; ready? }
@@ -369,13 +391,13 @@ class Chef
           config[:distro] = "windows-chef-client-msi" if (config[:distro].nil? || config[:distro] == "chef-full")
           if protocol == 'winrm'
             load_winrm_deps
-            print "\n#{ui.color("Waiting for winrm", :magenta)}"
+            print "\n#{ui.color("Waiting for winrm access to become available", :magenta)}"
             print(".") until tcp_test_winrm(ssh_connect_host, locate_config_value(:winrm_port)) {
               sleep 10
               puts("done")
             }
           else
-            print "\n#{ui.color("Waiting for sshd", :magenta)}"
+            print "\n#{ui.color("Waiting for sshd access to become available", :magenta)}"
             #If FreeSSHd, winsshd etc are available
             print(".") until tcp_test_ssh(ssh_connect_host, config[:ssh_port]) {
               sleep @initial_sleep_delay ||= (vpc_mode? ? 40 : 10)
@@ -385,7 +407,7 @@ class Chef
           end
           bootstrap_for_windows_node(@server, ssh_connect_host).run
         elsif ! config[:no_ssh_bootstrap]
-          print "\n#{ui.color("Waiting for sshd", :magenta)}"
+          print "\n#{ui.color("Waiting for sshd access to become available", :magenta)}"
           wait_for_sshd(ssh_connect_host)
           ssh_override_winrm
           bootstrap_for_linux_node(@server, ssh_connect_host).run
@@ -411,6 +433,8 @@ class Chef
           msg_pair("Root Volume ID", device_map['volumeId'])
           msg_pair("Root Device Name", device_map['deviceName'])
           msg_pair("Root Device Delete on Terminate", device_map['deleteOnTermination'])
+          msg_pair("Standard or Provisioned IOPS", device_map['volumeType'])
+          msg_pair("IOPS rate", device_map['iops'])
 
           if config[:ebs_size]
             if ami.block_device_mapping.first['volumeSize'].to_i < config[:ebs_size].to_i
@@ -481,6 +505,7 @@ class Chef
           bootstrap.config[:kerberos_service] = locate_config_value(:kerberos_service)
           bootstrap.config[:ca_trust_file] = locate_config_value(:ca_trust_file)
           bootstrap.config[:winrm_port] = locate_config_value(:winrm_port)
+          bootstrap.config[:auth_timeout] = locate_config_value(:auth_timeout)
         elsif locate_config_value(:bootstrap_protocol) == 'ssh'
           bootstrap = Chef::Knife::BootstrapWindowsSsh.new
           bootstrap.config[:ssh_user] = locate_config_value(:ssh_user)
@@ -595,6 +620,22 @@ class Chef
             ui.error("Elastic IP requested is not available.")
             exit 1
           end
+        end
+
+        if config[:ebs_provisioned_iops] and config[:ebs_volume_type] != 'io1'
+          ui.error("--provisioned-iops option is only supported for volume type of 'io1'")
+          exit 1
+        end
+
+        if config[:ebs_volume_type] == 'io1' and config[:ebs_provisioned_iops].nil?
+          ui.error("--provisioned-iops option is required when using volume type of 'io1'")
+          exit 1
+        end
+
+        if config[:ebs_volume_type] and ! %w(gp2 io1 standard).include?(config[:ebs_volume_type])
+          ui.error("--ebs-volume-type must be 'standard' or 'io1' or 'gp2'")
+          msg opt_parser
+          exit 1
         end
       end
 
@@ -756,13 +797,26 @@ class Chef
                         else
                           ami_map["deleteOnTermination"]
                         end
+          iops_rate = begin
+                        if config[:ebs_provisioned_iops]
+                          Integer(config[:ebs_provisioned_iops]).to_s
+                        else
+                          ami_map["iops"].to_s
+                        end
+                      rescue ArgumentError
+                        puts "--provisioned-iops must be an integer"
+                        msg opt_parser
+                        exit 1
+                      end
 
           server_def[:block_device_mapping] =
             [{
                'DeviceName' => ami_map["deviceName"],
                'Ebs.VolumeSize' => ebs_size,
-               'Ebs.DeleteOnTermination' => delete_term
+               'Ebs.DeleteOnTermination' => delete_term,
+               'Ebs.VolumeType' => config[:ebs_volume_type],
              }]
+          server_def[:block_device_mapping].first['Ebs.Iops'] = iops_rate unless iops_rate.empty?
         end
 
         (config[:ephemeral] || []).each_with_index do |device_name, i|
@@ -773,13 +827,45 @@ class Chef
       end
 
       def wait_for_sshd(hostname)
-        config[:ssh_gateway] ? wait_for_tunnelled_sshd(hostname) : wait_for_direct_sshd(hostname, config[:ssh_port])
+        ssh_gateway = get_ssh_gateway_for(hostname)
+        ssh_gateway ? wait_for_tunnelled_sshd(ssh_gateway, hostname) : wait_for_direct_sshd(hostname, config[:ssh_port])
       end
 
-      def wait_for_tunnelled_sshd(hostname)
+      def get_ssh_gateway_for(hostname)
+        if config[:ssh_gateway]
+          # The ssh_gateway specified in the knife config (if any) takes
+          # precedence over anything in the SSH configuration
+          Chef::Log.debug("Using ssh gateway #{config[:ssh_gateway]} from knife config")
+          config[:ssh_gateway]
+        else
+          # Next, check if the SSH configuration has a ProxyCommand
+          # directive for this host. If there is one, parse out the
+          # host from the proxy command
+          ssh_proxy = Net::SSH::Config.for(hostname)[:proxy]
+          if ssh_proxy.respond_to?(:command_line_template)
+            # ssh gateway_hostname nc %h %p
+            proxy_pattern = /ssh\s+(\S+)\s+nc/
+            matchdata = proxy_pattern.match(ssh_proxy.command_line_template)
+            if matchdata.nil?
+              Chef::Log.debug("Unable to determine ssh gateway for '#{hostname}' from ssh config template: #{ssh_proxy.command_line_template}")
+              nil
+            else
+              # Return hostname extracted from command line template
+              Chef::Log.debug("Using ssh gateway #{matchdata[1]} from ssh config")
+              matchdata[1]
+            end
+          else
+            # Return nil if we cannot find an ssh_gateway
+            Chef::Log.debug("No ssh gateway found, making a direct connection")
+            nil
+          end
+        end
+      end
+
+      def wait_for_tunnelled_sshd(ssh_gateway, hostname)
         print "\n#{ui.color("Waiting for tunnelled sshd", :magenta)}"
         initial = true
-        print(".") until tunnel_test_ssh(hostname) {
+        print(".") until tunnel_test_ssh(ssh_gateway, hostname) {
           if initial
             initial = false
             sleep (vpc_mode? ? 40 : 10)
@@ -790,11 +876,9 @@ class Chef
         }
       end
 
-      def tunnel_test_ssh(hostname, &block)
-        gw_host, gw_user = config[:ssh_gateway].split('@').reverse
-        gw_host, gw_port = gw_host.split(':')
-        gateway = Net::SSH::Gateway.new(gw_host, gw_user, :port => gw_port || 22)
+      def tunnel_test_ssh(ssh_gateway, hostname, &block)
         status = false
+        gateway = configure_ssh_gateway(ssh_gateway)
         gateway.open(hostname, config[:ssh_port]) do |local_tunnel_port|
           status = tcp_test_ssh('localhost', local_tunnel_port, &block)
         end
@@ -804,6 +888,33 @@ class Chef
         false
       rescue Errno::EPERM, Errno::ETIMEDOUT
         false
+      end
+
+      def configure_ssh_gateway(ssh_gateway)
+        gw_host, gw_user = ssh_gateway.split('@').reverse
+        gw_host, gw_port = gw_host.split(':')
+        gateway_options = { :port => gw_port || 22 }
+
+        # Load the SSH config for the SSH gateway host.
+        # Set the gateway user if it was not part of the
+        # SSH gateway string, and use any configured
+        # SSH keys.
+        ssh_gateway_config = Net::SSH::Config.for(gw_host)
+        gw_user ||= ssh_gateway_config[:user]
+
+        # Always use the gateway keys from the SSH Config
+        gateway_keys = ssh_gateway_config[:keys]        
+
+        # Use the keys specificed on the command line if available (overrides SSH Config)
+        if config[:ssh_gateway_identity]
+          gateway_keys = Array(locate_config_value(:ssh_gateway_identity))
+        end
+
+        unless gateway_keys.nil?
+          gateway_options[:keys] = gateway_keys
+        end
+
+        Net::SSH::Gateway.new(gw_host, gw_user, gateway_options)
       end
 
       def wait_for_direct_sshd(hostname, ssh_port)
