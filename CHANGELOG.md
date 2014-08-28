@@ -10,7 +10,11 @@ prior to release 0.8.0, please visit the [source repository](https://github.com/
 * [KNIFE-464](https://tickets.opscode.com/browse/KNIFE-466) Knife ec2 should use gateway from net::ssh config if available
 * [KNIFE-422](https://tickets.opscode.com/browse/KNIFE-422) Knife ec2 server create doesn't respect identity file of gateway server from ssh\_config
 
-## Last release: 1.2.1 (2014-04-22)
+## Last release: 1.4.0 (2014-08-28)
+
+* Merge changes from upstream
+
+## 1.2.1 (2014-04-22)
 
 * Add nil check to vpc tag getter
 
