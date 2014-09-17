@@ -398,6 +398,9 @@ class Chef
           Chef::Config[:validation_key] = validation_key_path
         end
 
+        Chef::Config[:knife][:secret] = s3_secret if
+          Chef::Config[:knife][:s3_secret]
+
         #Check if Server is Windows or Linux
         if is_image_windows?
           if config[:no_ssh_bootstrap]
@@ -519,7 +522,9 @@ class Chef
       def s3_secret
         @s3_secret ||= begin
           return false unless locate_config_value(:s3_secret)
-          Chef::Knife::S3Source.fetch(locate_config_value(:s3_secret))
+          s3_secret = Chef::Knife::S3Source.fetch(locate_config_value(:s3_secret))
+          Chef::Log.debug("S3 Secret: #{s3_secret}")
+          s3_secret
         end
       end
 
@@ -533,7 +538,7 @@ class Chef
         bootstrap.config[:first_boot_attributes] = locate_config_value(:json_attributes) || {}
         bootstrap.config[:encrypted_data_bag_secret] = locate_config_value(:encrypted_data_bag_secret)
         bootstrap.config[:encrypted_data_bag_secret_file] = locate_config_value(:encrypted_data_bag_secret_file)
-        bootstrap.config[:secret] = s3_secret || locate_config_value(:secret)
+        bootstrap.config[:secret] = locate_config_value(:secret)
         bootstrap.config[:secret_file] = locate_config_value(:secret_file)
         # Modify global configuration state to ensure hint gets set by
         # knife-bootstrap

@@ -395,19 +395,6 @@ describe Chef::Knife::Ec2ServerCreate do
         expect(bootstrap.config[:secret_file]).to eql("cli-provided-secret-file")
       end
     end
-
-    context 'S3-based secret' do
-      before(:each) do
-        Chef::Config[:knife][:s3_secret] =
-          's3://test.bucket/folder/encrypted_data_bag_secret'
-        @secret_content = "TEST DATA BAG SECRET\n"
-        @knife_ec2_create.stub(:s3_secret).and_return(@secret_content)
-      end
-
-      it 'sets the secret to the expected test string' do
-        expect(bootstrap.config[:secret]).to eql(@secret_content)
-      end
-    end
   end
 
   describe "when configuring the bootstrap process" do
