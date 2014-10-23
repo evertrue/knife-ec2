@@ -309,7 +309,7 @@ class Chef
         :proc => Proc.new { |m| Chef::Config[:knife][:monitoring] = m }
 
       option :validation_key_url,
-        :long => "--validation-key",
+        :long => "--validation-key-url",
         :description => "Path to the validation key",
         :proc => proc { |m| Chef::Config[:validation_key_url] = m }
 
@@ -538,7 +538,7 @@ class Chef
         bootstrap.config[:first_boot_attributes] = locate_config_value(:json_attributes) || {}
         bootstrap.config[:encrypted_data_bag_secret] = locate_config_value(:encrypted_data_bag_secret)
         bootstrap.config[:encrypted_data_bag_secret_file] = locate_config_value(:encrypted_data_bag_secret_file)
-        bootstrap.config[:secret] = locate_config_value(:secret)
+        bootstrap.config[:secret] = s3_secret || locate_config_value(:secret)
         bootstrap.config[:secret_file] = locate_config_value(:secret_file)
         # Modify global configuration state to ensure hint gets set by
         # knife-bootstrap

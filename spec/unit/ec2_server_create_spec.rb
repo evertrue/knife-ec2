@@ -395,6 +395,19 @@ describe Chef::Knife::Ec2ServerCreate do
         expect(bootstrap.config[:secret_file]).to eql("cli-provided-secret-file")
       end
     end
+
+    context 'S3-based secret' do
+      before(:each) do
+        Chef::Config[:knife][:s3_secret] =
+          's3://test.bucket/folder/encrypted_data_bag_secret'
+        @secret_content = "TEST DATA BAG SECRET\n"
+        @knife_ec2_create.stub(:s3_secret).and_return(@secret_content)
+      end
+
+      it 'sets the secret to the expected test string' do
+        expect(bootstrap.config[:secret]).to eql(@secret_content)
+      end
+    end
   end
 
   describe "when configuring the bootstrap process" do
@@ -588,6 +601,35 @@ describe Chef::Knife::Ec2ServerCreate do
         Chef::Config[:knife][:aws_access_key_id].should == @access_key_id
         Chef::Config[:knife][:aws_secret_access_key].should == @secret_key
       end
+      it "reads UNIX Line endings for new format" do
+        File.stub(:read).
+          and_return("aws_access_key_id=#{@access_key_id}\naws_secret_access_key=#{@secret_key}")
+        @knife_ec2_create.validate!
+        Chef::Config[:knife][:aws_access_key_id].should == @access_key_id
+        Chef::Config[:knife][:aws_secret_access_key].should == @secret_key
+      end
+
+      it "reads DOS Line endings for new format" do
+        File.stub(:read).
+          and_return("aws_access_key_id=#{@access_key_id}\r\naws_secret_access_key=#{@secret_key}")
+        @knife_ec2_create.validate!
+        Chef::Config[:knife][:aws_access_key_id].should == @access_key_id
+        Chef::Config[:knife][:aws_secret_access_key].should == @secret_key
+      end      
+    end
+
+    it 'understands that file:// validation key URIs are just paths' do
+      Chef::Config[:knife][:validation_key_url] = 'file:///foo/bar'
+      @knife_ec2_create.validation_key_path.should eq('/foo/bar')
+    end
+
+    it 'returns a path to a tmp file when presented with a URI for the ' \
+      'validation key' do
+      Chef::Config[:knife][:validation_key_url] = @validation_key_url
+
+      @knife_ec2_create.stub_chain(:validation_key_tmpfile, :path).and_return(@validation_key_file)
+
+      @knife_ec2_create.validation_key_path.should eq(@validation_key_file)
     end
 
     it 'understands that file:// validation key URIs are just paths' do
