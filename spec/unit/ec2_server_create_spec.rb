@@ -457,12 +457,12 @@ describe Chef::Knife::Ec2ServerCreate do
     end
 
     it "configures the bootstrap to use prerelease versions of chef if specified" do
-      @bootstrap.config[:prerelease].should be_false
+      @bootstrap.config[:prerelease].should be_falsey
 
       @knife_ec2_create.config[:prerelease] = true
 
       bootstrap = @knife_ec2_create.bootstrap_for_linux_node(@new_ec2_server, @new_ec2_server.dns_name)
-      bootstrap.config[:prerelease].should be_true
+      bootstrap.config[:prerelease].should == true
     end
 
     it "configures the bootstrap to use the desired distro-specific bootstrap script" do
@@ -470,7 +470,7 @@ describe Chef::Knife::Ec2ServerCreate do
     end
 
     it "configures the bootstrap to use sudo" do
-      @bootstrap.config[:use_sudo].should be_true
+      @bootstrap.config[:use_sudo].should == true
     end
 
     it "configured the bootstrap to use the desired template" do
@@ -662,10 +662,17 @@ describe Chef::Knife::Ec2ServerCreate do
   end
 
   describe "when creating the connection" do
-    it "uses aws_session_token value from the --aws-session-token option" do
-      @knife_ec2_create.config[:aws_session_token] = 'session-token'
-      Fog::Compute::AWS.should_receive(:new).with(hash_including(:aws_session_token => 'session-token')).and_return(@ec2_connection)
-      @knife_ec2_create.connection
+    describe "when use_iam_profile is true" do
+      before do
+        Chef::Config[:knife].delete(:aws_access_key_id)
+        Chef::Config[:knife].delete(:aws_secret_access_key)
+      end
+
+      it "creates a connection without access keys" do
+        @knife_ec2_create.config[:use_iam_profile] = true
+        Fog::Compute::AWS.should_receive(:new).with(hash_including(:use_iam_profile => true)).and_return(@ec2_connection)
+        @knife_ec2_create.connection
+      end
     end
   end
 
@@ -758,6 +765,12 @@ describe Chef::Knife::Ec2ServerCreate do
       server_def = @knife_ec2_create.create_server_def
 
       server_def[:iam_instance_profile_name].should == nil
+    end
+
+    it "doesn't use IAM profile by default" do
+      server_def = @knife_ec2_create.create_server_def
+
+      server_def[:use_iam_profile].should == nil
     end
     
     it 'Set Tenancy Dedicated when both VPC mode and Flag is True' do
@@ -950,7 +963,7 @@ describe Chef::Knife::Ec2ServerCreate do
       @knife_ec2_create.config[:ssh_port] = 22
       gateway.should_receive(:open).with(hostname, 22).and_yield(local_port)
       @knife_ec2_create.should_receive(:tcp_test_ssh).with('localhost', local_port).and_return(true)
-      @knife_ec2_create.tunnel_test_ssh(gateway_host, hostname).should be_true
+      @knife_ec2_create.tunnel_test_ssh(gateway_host, hostname).should == true
     end
   end
 
@@ -1017,14 +1030,14 @@ describe Chef::Knife::Ec2ServerCreate do
       @knife_ec2_create = Chef::Knife::Ec2ServerCreate.new
       TCPSocket.stub(:new).and_return(StringIO.new(""))
       IO.stub(:select).and_return(true)
-      @knife_ec2_create.tcp_test_ssh("blackhole.ninja", 22).should be_false
+      @knife_ec2_create.tcp_test_ssh("blackhole.ninja", 22).should be_falsey
     end
 
     it "should return false if the socket isn't ready" do
       @knife_ec2_create = Chef::Knife::Ec2ServerCreate.new
       TCPSocket.stub(:new)
       IO.stub(:select).and_return(false)
-      @knife_ec2_create.tcp_test_ssh("blackhole.ninja", 22).should be_false
+      @knife_ec2_create.tcp_test_ssh("blackhole.ninja", 22).should be_falsey
     end
   end
 end
