@@ -309,7 +309,7 @@ class Chef
         :proc => Proc.new { |m| Chef::Config[:knife][:monitoring] = m }
 
       option :validation_key_url,
-        :long => "--validation-key-url",
+        :long => "--validation-key-url URL",
         :description => "Path to the validation key",
         :proc => proc { |m| Chef::Config[:validation_key_url] = m }
 
