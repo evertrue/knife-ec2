@@ -522,9 +522,7 @@ class Chef
       def s3_secret
         @s3_secret ||= begin
           return false unless locate_config_value(:s3_secret)
-          s3_secret = Chef::Knife::S3Source.fetch(locate_config_value(:s3_secret))
-          Chef::Log.debug("S3 Secret: #{s3_secret}")
-          s3_secret
+          Chef::Knife::S3Source.fetch(locate_config_value(:s3_secret))
         end
       end
 
