@@ -17,7 +17,7 @@ Gem::Specification.new do |s|
   s.executables  = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }
 
   s.add_dependency 'fog',           '~> 1.23.0'
-  s.add_dependency 'knife-windows', '>= 0.8.0'
+  s.add_dependency 'knife-windows', '>= 0.8.2'
   s.add_dependency 'aws-s3',        '~> 0.6.3'
   s.add_dependency 'unf',           '~> 0.1.4'
 
