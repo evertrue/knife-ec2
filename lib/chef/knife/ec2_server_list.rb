@@ -134,7 +134,6 @@ class Chef
         o << ui.color('AZ', :bold) if config[:az]
         o << ui.color('Image', :bold) if config[:image]
         o << ui.color('SSH Key', :bold) if config[:key]
-        o << ui.color('Security Groups', :bold)
 
         if config[:tags]
           o += config[:tags].split(',').map do |tag_name|
@@ -142,6 +141,7 @@ class Chef
           end
         end
 
+        o << ui.color('Security Groups', :bold)
         o << ui.color('VPC', :bold) if config[:vpc]
         o += [
           ui.color('IAM Profile', :bold),
@@ -193,16 +193,16 @@ class Chef
         o << server.image_id.to_s if config[:image]
         o << server.key_name.to_s if config[:key]
 
-        if server.vpc_id
-          o << groups_with_ids(server.security_group_ids).join(', ')
-        else
-          o << server.groups.join(', ')
-        end
-
         if config[:tags]
           o += config[:tags].split(',').map do |tag_name|
             server.tags[tag_name].to_s
           end
+        end
+
+        if server.vpc_id
+          o << groups_with_ids(server.security_group_ids).join(', ')
+        else
+          o << server.groups.join(', ')
         end
 
         o << server.vpc_id ? vpc_with_name(server.vpc_id.to_s) : '-' if config[:vpc]
