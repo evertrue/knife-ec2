@@ -155,8 +155,7 @@ class Chef
         o = @name_args.map do |n_a|
           all_servers.select { |s| s.tags['Name'] =~ /#{n_a}/ }
         end
-        o = o.flatten
-        o.sort_by { |s| s.tags['Name'] }
+        o.flatten.sort_by { |s| s.tags['Name'] }
       end
 
       def network_interfaces
