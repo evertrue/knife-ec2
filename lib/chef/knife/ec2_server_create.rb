@@ -90,6 +90,11 @@ class Chef
         :description => "The tags for this server",
         :proc => Proc.new { |tags| tags.split(',') }
 
+      option :type_tag,
+        :long => "--type TYPE",
+        :description => "EverTrue-specific instance type (e.g. api, legacy, " \
+                        "etc.)"
+
       option :availability_zone,
         :short => "-Z ZONE",
         :long => "--availability-zone ZONE",
@@ -332,7 +337,7 @@ class Chef
 
         @server = connection.servers.create(create_server_def)
 
-        hashed_tags={}
+        hashed_tags={ "Type" => config[:type_tag] }
         tags.map{ |t| key,val=t.split('='); hashed_tags[key]=val} unless tags.nil?
 
         # Always set the Name tag
@@ -700,6 +705,11 @@ class Chef
 
         if config[:ebs_volume_type] == 'io1' and config[:ebs_provisioned_iops].nil?
           ui.error("--provisioned-iops option is required when using volume type of 'io1'")
+          exit 1
+        end
+
+        if config[:type_tag].nil?
+          ui.error('--type argument is required')
           exit 1
         end
 
