@@ -33,6 +33,13 @@ class Chef
              default: true,
              description: 'Do not display name tag in output'
 
+      option :name_only,
+             short: '-o',
+             long: '--name-only',
+             boolean: true,
+             default: false,
+             description: 'Only show the name (and nothing else)'
+
       option :az,
              short: '-z',
              long: '--availability-zone',
@@ -227,14 +234,14 @@ class Chef
 
         validate!
 
-        server_list = header
-        output_column_count = server_list.length
+        server_list = config[:name_only] ? [] : header
+        output_column_count = config[:name_only] ? 1 : server_list.length
 
         ui.warn 'No region was specified in knife.rb or as an argument. The ' \
           'default region, us-east-1, will be used:' unless config[:region]
 
         server_list += servers.map do |server|
-          server_row(server)
+          config[:name_only] ? server.tags['Name'].to_s : server_row(server)
         end.flatten
 
         puts ui.list(server_list, :uneven_columns_across, output_column_count)
