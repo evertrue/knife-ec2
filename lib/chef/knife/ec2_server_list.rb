@@ -98,18 +98,128 @@ class Chef
 
       def groups_with_ids(groups)
         groups.map do|g|
-          "#{g} (#{@group_id_hash[g]})"
+          "#{g} (#{group_id_hash[g]})"
         end
       end
 
+      def vpcs
+        @vpcs ||= connection.vpcs.all
+      end
+
       def vpc_with_name(vpc_id)
-        this_vpc = @vpcs.select { |v| v.id == vpc_id }.first
-        if !this_vpc.nil? && this_vpc.tags['Name']
-          vpc_name = this_vpc.tags['Name']
-          "#{vpc_name} (#{vpc_id})"
-        else
-          vpc_id
+        this_vpc = vpcs.find { |v| v.id == vpc_id }
+        return vpc_id unless !this_vpc.nil? && this_vpc.tags['Name']
+        "#{this_vpc.tags['Name']} (#{vpc_id})"
+      end
+
+      def all_servers
+        @all_servers ||= connection.servers.all
+      end
+
+      def header
+        o = [ui.color('Instance ID', :bold)]
+        o << ui.color('Name', :bold) if config[:name]
+        o += [
+          ui.color('Public IP', :bold),
+          ui.color('Private IP', :bold),
+          ui.color('Flavor', :bold)
+        ]
+        o << ui.color('AZ', :bold) if config[:az]
+        o << ui.color('Image', :bold) if config[:image]
+        o << ui.color('SSH Key', :bold) if config[:key]
+        o << ui.color('Security Groups', :bold)
+
+        if config[:tags]
+          o += config[:tags].split(',').map do |tag_name|
+            ui.color("Tag:#{tag_name}", :bold)
+          end
         end
+
+        o << ui.color('VPC', :bold) if config[:vpc]
+        o += [
+          ui.color('IAM Profile', :bold),
+          ui.color('State', :bold)
+        ]
+        o
+      end
+
+      def servers
+        return all_servers.sort_by { |s| s.tags['Name'] } if @name_args.empty?
+        o = @name_args.map do |n_a|
+          all_servers.select { |s| s.tags['Name'] =~ /#{n_a}/ }
+        end
+        o = o.flatten
+        o.sort_by { |s| s.tags['Name'] }
+      end
+
+      def network_interfaces
+        @network_interfaces ||= connection.network_interfaces
+      end
+
+      def server_row(server)
+        o = [server.id.to_s]
+        o << server.tags['Name'].to_s if config[:name]
+        o << server.public_ip_address.to_s
+
+        if server.subnet_id
+          first_subnet = server.network_interfaces.select do |ni|
+            ni['networkInterfaceId']
+          end.select do |ni|
+            network_interfaces.select do |sni|
+              sni.attachment &&
+              sni.network_interface_id == ni['networkInterfaceId']
+            end.first.attachment['deviceIndex'] == '0'
+          end.first
+
+          private_ip = network_interfaces.select do |ni|
+            ni.network_interface_id == first_subnet['networkInterfaceId']
+          end.first.private_ip_address
+
+          o << "#{first_subnet['subnetId']}/#{private_ip}"
+        else
+          o << server.private_ip_address.to_s
+        end
+
+        o << ui.color(server.flavor_id.to_s,
+                      fcolor(server.flavor_id.to_s))
+        o << ui.color(server.availability_zone.to_s,
+                      azcolor(server.availability_zone.to_s)) if config[:az]
+        o << server.image_id.to_s if config[:image]
+        o << server.key_name.to_s if config[:key]
+
+        if server.vpc_id
+          o << groups_with_ids(server.security_group_ids).join(', ')
+        else
+          o << server.groups.join(', ')
+        end
+
+        if config[:tags]
+          o += config[:tags].split(',').map do |tag_name|
+            server.tags[tag_name].to_s
+          end
+        end
+
+        o << server.vpc_id ? vpc_with_name(server.vpc_id.to_s) : '-' if config[:vpc]
+        o << iam_name_from_profile(server.iam_instance_profile)
+
+        o << begin
+          state = server.state.to_s.downcase
+          case state
+          when 'shutting-down', 'terminated', 'stopping', 'stopped'
+            ui.color(state, :red)
+          when 'pending'
+            ui.color(state, :yellow)
+          else
+            ui.color(state, :green)
+          end
+        end
+        o
+      end
+
+      def group_id_hash
+        @group_id_hash ||= Hash[connection.security_groups.map do |g|
+          [g.group_id, g.name]
+        end]
       end
 
       def run
@@ -117,138 +227,15 @@ class Chef
 
         validate!
 
-        @group_id_hash = Hash[connection.security_groups.map do |g|
-          [g.group_id, g.name]
-        end]
-
-        network_interfaces = connection.network_interfaces
-
-        server_list = [
-          ui.color('Instance ID', :bold),
-
-          if config[:name]
-            ui.color('Name', :bold)
-          end,
-
-          ui.color('Public IP', :bold),
-          ui.color('Private IP', :bold),
-          ui.color('Flavor', :bold),
-
-          if config[:az]
-            ui.color('AZ', :bold)
-          end,
-
-          if config[:image]
-            ui.color('Image', :bold)
-          end,
-
-          if config[:key]
-            ui.color('SSH Key', :bold)
-          end,
-
-          ui.color('Security Groups', :bold),
-
-          if config[:tags]
-            config[:tags].split(',').map do |tag_name|
-              ui.color("Tag:#{tag_name}", :bold)
-            end
-          end,
-
-          if config[:vpc]
-            ui.color('VPC', :bold)
-          end,
-
-          ui.color('IAM Profile', :bold),
-
-          ui.color('State', :bold)
-        ].flatten.compact
-
+        server_list = header
         output_column_count = server_list.length
-
-        @vpcs = connection.vpcs.all if config[:vpc]
 
         ui.warn 'No region was specified in knife.rb or as an argument. The ' \
           'default region, us-east-1, will be used:' unless config[:region]
 
-        all_servers = connection.servers.all
-
-        if @name_args.empty?
-          servers = all_servers
-        else
-          servers = []
-          @name_args.each do |n_a|
-            all_servers.select do |s|
-              servers << s if s.tags['Name'] =~ /#{n_a}/
-            end
-          end
-        end
-
-        servers.each do |server|
-          server_list << server.id.to_s
-          server_list << server.tags['Name'].to_s if config[:name]
-          server_list << server.public_ip_address.to_s
-
-          if server.subnet_id
-            first_subnet = server.network_interfaces.select do |ni|
-              ni['networkInterfaceId']
-            end.select do |ni|
-              network_interfaces.select do |sni|
-                sni.attachment &&
-                sni.network_interface_id == ni['networkInterfaceId']
-              end.first.attachment['deviceIndex'] == '0'
-            end.first
-
-            private_ip = network_interfaces.select do |ni|
-              ni.network_interface_id == first_subnet['networkInterfaceId']
-            end.first.private_ip_address
-
-            server_list << "#{first_subnet['subnetId']}/#{private_ip}"
-          else
-            server_list << server.private_ip_address.to_s
-          end
-
-          server_list << ui.color(
-                                  server.flavor_id.to_s,
-                                  fcolor(server.flavor_id.to_s)
-                                )
-
-          if config[:az]
-            server_list << ui.color(
-                                server.availability_zone.to_s,
-                                azcolor(server.availability_zone.to_s)
-                              )
-          end
-
-          server_list << server.image_id.to_s if config[:image]
-          server_list << server.key_name.to_s if config[:key]
-
-          if server.vpc_id
-            server_list << groups_with_ids(server.security_group_ids).join(', ')
-          else
-            server_list << server.groups.join(', ')
-          end
-
-          if config[:tags]
-            config[:tags].split(',').each do |tag_name|
-              server_list << server.tags[tag_name].to_s
-            end
-          end
-
-          server_list << server.vpc_id ? vpc_with_name(server.vpc_id.to_s) : '-' if config[:vpc]
-          server_list << iam_name_from_profile(server.iam_instance_profile)
-
-          server_list << begin
-            state = server.state.to_s.downcase
-            case state
-            when 'shutting-down', 'terminated', 'stopping', 'stopped'
-              ui.color(state, :red)
-            when 'pending'
-              ui.color(state, :yellow)
-            else
-              ui.color(state, :green)
-            end
-          end
-        end
+        server_list += servers.map do |server|
+          server_row(server)
+        end.flatten
 
         puts ui.list(server_list, :uneven_columns_across, output_column_count)
       end
