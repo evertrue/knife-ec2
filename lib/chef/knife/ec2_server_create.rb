@@ -718,6 +718,16 @@ class Chef
           msg opt_parser
           exit 1
         end
+
+        if(config[:security_groups] && config[:security_groups].class == String)
+          ui.error("Invalid value type for knife[:security_groups] in knife configuration file (i.e knife.rb). Type should be array. e.g - knife[:security_groups] = ['sgroup1']")
+          exit 1
+        end
+
+        if(config[:security_group_ids] && config[:security_group_ids].class == String)
+          ui.error("Invalid value type for knife[:security_group_ids] in knife configuration file (i.e knife.rb). Type should be array. e.g - knife[:security_group_ids] = ['sgroup1']")
+          exit 1
+        end
       end
 
       def tags
@@ -984,7 +994,7 @@ class Chef
         gw_user ||= ssh_gateway_config[:user]
 
         # Always use the gateway keys from the SSH Config
-        gateway_keys = ssh_gateway_config[:keys]        
+        gateway_keys = ssh_gateway_config[:keys]
 
         # Use the keys specificed on the command line if available (overrides SSH Config)
         if config[:ssh_gateway_identity]
@@ -1196,7 +1206,6 @@ class Chef
 
       def load_winrm_deps
         require 'winrm'
-        require 'em-winrm'
         require 'chef/knife/winrm'
         require 'chef/knife/bootstrap_windows_winrm'
         require 'chef/knife/bootstrap_windows_ssh'
