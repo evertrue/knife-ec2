@@ -151,7 +151,8 @@ class Chef
       end
 
       def servers
-        return all_servers.sort_by { |s| s.tags['Name'] } if @name_args.empty?
+        return all_servers.sort_by { |s| s.tags['Name'] || s.id } if
+          @name_args.empty?
         o = @name_args.map do |n_a|
           all_servers.select { |s| s.tags['Name'] =~ /#{n_a}/ }
         end
@@ -240,7 +241,11 @@ class Chef
           'default region, us-east-1, will be used:' unless config[:region]
 
         server_list += servers.map do |server|
-          config[:name_only] ? server.tags['Name'].to_s : server_row(server)
+          if config[:name_only]
+            server.tags['Name'] ? server.tags['Name'] : server.id
+          else
+            server_row(server)
+          end
         end.flatten
 
         puts ui.list(server_list, :uneven_columns_across, output_column_count)
