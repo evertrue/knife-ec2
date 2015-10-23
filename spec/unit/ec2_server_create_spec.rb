@@ -32,48 +32,38 @@ describe Chef::Knife::Ec2ServerCreate do
     @knife_ec2_create.config[:type_tag] = 'rspec-test'
     allow(@knife_ec2_create).to receive(:tcp_test_ssh).and_return(true)
 
+    @ec2_connection = Fog::Compute::AWS.new
+
+    @my_vpc = @ec2_connection.vpcs.create('cidrBlock' => '10.0.0.0/8').id
+
+    @subnet_1 = @ec2_connection.subnets.create(
+      'cidrBlock' => '10.10.0.0/16',
+      'vpcId' => @my_vpc,
+      'tagSet' => { 'Name' => 'test-subnet' }
+    )
+    @subnet_id_1 = @subnet_1.subnet_id
+
+    @subnet_2 = @ec2_connection.subnets.create(
+      'cidrBlock' => '10.20.0.0/16',
+      'vpcId' => @my_vpc,
+      'tagSet' => { 'Name' => 'test-subnet-2' }
+    )
+    @subnet_id_2 = @subnet_2.subnet_id
+
+    @nic_id_1 = @ec2_connection.network_interfaces.create('subnetId' => @subnet_id_1).network_interface_id
+    @nic_id_2 = @ec2_connection.network_interfaces.create('subnetId' => @subnet_id_1).network_interface_id
+
     {
-      :image => 'image',
+      :image => 'ami-a1b2c3d4',
       :ssh_key_name => 'ssh_key_name',
       :aws_access_key_id => 'aws_access_key_id',
       :aws_secret_access_key => 'aws_secret_access_key',
-      :network_interfaces => ['eni-12345678',
-                              'eni-87654321']
+      :network_interfaces => [@nic_id_1, @nic_id_2]
     }.each do |key, value|
       Chef::Config[:knife][key] = value
     end
 
-    @my_vpc = 'vpc-12345678'
-
-    @ec2_connection = double(Fog::Compute::AWS)
-
-    @subnet_1_id = 'subnet-1a2b3c4d'
-    @subnet_1 = double('subnets',
-                  tag_set: { 'Name' => 'test-subnet' },
-                  subnet_id: @subnet_1_id,
-                  vpc_id: @my_vpc
-                )
-    @subnet_2_id = 'subnet-abcd1234'
-    @subnet_2 = double('subnets',
-                  tag_set: { 'Name' => 'test-subnet-2' },
-                  subnet_id: @subnet_2_id,
-                  vpc_id: @my_vpc
-                )
-
-    @ec2_connection.stub_chain(:subnets).and_return [@subnet_1, @subnet_2]
-
-    @ec2_connection.stub_chain(:network_interfaces, :all).and_return [
-      double('network_interfaces', network_interface_id: 'eni-12345678'),
-      double('network_interfaces', network_interface_id: 'eni-87654321')
-    ]
-    allow(@ec2_connection).to receive(:tags).and_return double('create', :create => true)
-    allow(@ec2_connection).to receive_message_chain(:images, :get).and_return double('ami', :root_device_type => 'not_ebs', :platform => 'linux')
-    allow(@ec2_connection).to receive(:addresses).and_return [double('addesses', {
-            :domain => 'standard',
-            :public_ip => '111.111.111.111',
-            :server_id => nil,
-            :allocation_id => ''})]
-
+    @ec2_connection.key_pairs.create('keyName' => 'ssh_key_name')
 
     @ec2_servers = double()
     @new_ec2_server = double()
@@ -115,7 +105,7 @@ describe Chef::Knife::Ec2ServerCreate do
       allow(@new_spot_request).to receive(attrib).and_return(value)
     end
 
-    @s3_connection = double(Fog::Storage::AWS)
+    @s3_connection = Fog::Storage::AWS
 
     @bootstrap = Chef::Knife::Bootstrap.new
     allow(Chef::Knife::Bootstrap).to receive(:new).and_return(@bootstrap)
@@ -127,6 +117,13 @@ describe Chef::Knife::Ec2ServerCreate do
 
   describe "Spot Instance creation" do
     before do
+      allow(@knife_ec2_create).to receive(:ami).and_return(
+        object_double(
+          'AMI',
+          root_device_type: 'instance-store',
+          block_device_mapping: []
+        )
+      )
       allow(Fog::Compute::AWS).to receive(:new).and_return(@ec2_connection)
       @knife_ec2_create.config[:spot_price] = 0.001
       @knife_ec2_create.config[:spot_request_type] = 'persistent'
@@ -135,7 +132,7 @@ describe Chef::Knife::Ec2ServerCreate do
       allow(@knife_ec2_create.ui).to receive(:color).and_return('')
       allow(@knife_ec2_create).to receive(:confirm)
       @spot_instance_server_def = {
-          :image_id => "image",
+          :image_id => "ami-a1b2c3d4",
           :groups => nil,
           :security_group_ids => nil,
           :flavor_id => nil,
@@ -191,6 +188,13 @@ describe Chef::Knife::Ec2ServerCreate do
 
   describe "run" do
     before do
+      allow(@knife_ec2_create).to receive(:ami).and_return(
+        object_double(
+          'AMI',
+          root_device_type: 'instance-store',
+          block_device_mapping: []
+        )
+      )
       expect(@ec2_servers).to receive(:create).and_return(@new_ec2_server)
       expect(@ec2_connection).to receive(:servers).and_return(@ec2_servers)
       expect(@ec2_connection).to receive(:addresses)
@@ -308,10 +312,14 @@ describe Chef::Knife::Ec2ServerCreate do
 
   describe "run without-ssh" do
     before do
-      @ec2_servers.should_receive(:create).and_return(@new_ec2_server)
-      @ec2_connection.should_receive(:servers).and_return(@ec2_servers)
-
-      Fog::Compute::AWS.should_receive(:new).and_return(@ec2_connection)
+      allow(@knife_ec2_create).to receive(:ami).and_return(
+        object_double(
+          'AMI',
+          root_device_type: 'instance-store',
+          block_device_mapping: []
+        )
+      )
+      allow(Fog::Compute::AWS).to receive(:new).and_return(@ec2_connection)
 
       allow(@knife_ec2_create).to receive(:puts)
       allow(@knife_ec2_create).to receive(:print)
@@ -332,6 +340,13 @@ describe Chef::Knife::Ec2ServerCreate do
 
   describe "run for EC2 Windows instance" do
     before do
+      allow(@knife_ec2_create).to receive(:ami).and_return(
+        object_double(
+          'AMI',
+          root_device_type: 'instance-store',
+          block_device_mapping: []
+        )
+      )
       expect(@ec2_servers).to receive(:create).and_return(@new_ec2_server)
       expect(@ec2_connection).to receive(:servers).and_return(@ec2_servers)
       expect(@ec2_connection).to receive(:addresses)
@@ -509,7 +524,7 @@ describe Chef::Knife::Ec2ServerCreate do
 
   context "when deprecated aws_ssh_key_id option is used in knife config and no ssh-key is supplied on the CLI" do
     before do
-      Chef::Config[:knife][:aws_ssh_key_id] = "mykey"
+      Chef::Config[:knife][:aws_ssh_key_id] = "ssh_key_name"
       Chef::Config[:knife].delete(:ssh_key_name)
       @aws_key = Chef::Config[:knife][:aws_ssh_key_id]
       allow(@knife_ec2_create).to receive(:ami).and_return(false)
@@ -524,7 +539,7 @@ describe Chef::Knife::Ec2ServerCreate do
 
   context "when deprecated aws_ssh_key_id option is used in knife config but ssh-key is also supplied on the CLI" do
     before do
-      Chef::Config[:knife][:aws_ssh_key_id] = "mykey"
+      Chef::Config[:knife][:aws_ssh_key_id] = "ssh_key_name"
       @aws_key = Chef::Config[:knife][:aws_ssh_key_id]
       allow(@knife_ec2_create).to receive(:ami).and_return(false)
     end
@@ -538,7 +553,7 @@ describe Chef::Knife::Ec2ServerCreate do
 
   context "when ssh_key_name option is used in knife config instead of deprecated aws_ssh_key_id option" do
     before do
-      Chef::Config[:knife][:ssh_key_name] = "mykey"
+      Chef::Config[:knife][:ssh_key_name] = "ssh_key_name"
       allow(@knife_ec2_create).to receive(:ami).and_return(false)
     end
 
@@ -550,7 +565,7 @@ describe Chef::Knife::Ec2ServerCreate do
   context "when ssh_key_name option is used in knife config also it is passed on the CLI" do
     before do
       allow(Fog::Compute::AWS).to receive(:new).and_return(@ec2_connection)
-      Chef::Config[:knife][:ssh_key_name] = "mykey"
+      Chef::Config[:knife][:ssh_key_name] = "ssh_key_name"
       @knife_ec2_create.config[:ssh_key_name] = "ssh_key_name"
     end
 
@@ -868,18 +883,6 @@ describe Chef::Knife::Ec2ServerCreate do
       @knife_ec2_create.config[:subnet_id] = @subnet_1_id
       @knife_ec2_create.config[:security_group_ids] = 'sg-aabbccdd'
       @knife_ec2_create.config[:security_groups] = 'groupname'
-
-      @ec2_connection.stub_chain(:subnets, :get).with(@subnet_1_id)
-        .and_return(@subnet_1)
-
-      @ec2_connection.stub_chain(:network_interfaces, :all).and_return [
-        double('network_interfaces',
-               network_interface_id: 'eni-12345678',
-               vpc_id: 'another_vpc'),
-        double('network_interfaces',
-               network_interface_id: 'eni-87654321',
-               vpc_id: @my_vpc)
-      ]
 
       expect { @knife_ec2_create.validate! }.to raise_error SystemExit
     end
@@ -1356,7 +1359,6 @@ describe Chef::Knife::Ec2ServerCreate do
 
     it "configures the ssh gateway with the key specified on the knife config / command line" do
       @knife_ec2_create.config[:ssh_gateway_identity] = "/home/fireman/.ssh/gateway.pem"
-      #Net::SSH::Config.stub(:for).and_return({ :keys => ['configuredkey'] })
       expect(Net::SSH::Gateway).to receive(:new).with(gateway_host, nil, :port => 22, :keys => ['/home/fireman/.ssh/gateway.pem'])
       @knife_ec2_create.configure_ssh_gateway(gateway_host)
     end
@@ -1459,7 +1461,7 @@ netsh advfirewall firewall add rule name="WinRM HTTPS" protocol=TCP dir=in Local
   describe 'attach ssl config into user data when transport is ssl' do
     before(:each) do
       allow(Fog::Compute::AWS).to receive(:new).and_return(@ec2_connection)
-      Chef::Config[:knife][:ssh_key_name] = "mykey"
+      Chef::Config[:knife][:ssh_key_name] = "ssh_key_name"
       @knife_ec2_create.config[:ssh_key_name] = "ssh_key_name"
       @knife_ec2_create.config[:winrm_transport] = "ssl"
     end
@@ -1818,7 +1820,7 @@ ipconfig > c:\\ipconfig_data.txt
   describe "do not attach ssl config into user data when transport is plaintext" do
     before(:each) do
       allow(Fog::Compute::AWS).to receive(:new).and_return(@ec2_connection)
-      Chef::Config[:knife][:ssh_key_name] = "mykey"
+      Chef::Config[:knife][:ssh_key_name] = "ssh_key_name"
       @knife_ec2_create.config[:ssh_key_name] = "ssh_key_name"
       @knife_ec2_create.config[:winrm_transport] = "plaintext"
     end

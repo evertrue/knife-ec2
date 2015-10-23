@@ -11,6 +11,9 @@ RSpec.configure do |c|
   c.raise_errors_for_deprecations!
   c.filter_run_excluding :exclude => true
   c.before(:each) do
+    Fog.mock!
+    Fog::Mock.reset
+    Fog::Mock.delay = 0
     Chef::Config.reset
     Chef::Config[:knife] ={}
   end
