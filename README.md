@@ -1,19 +1,29 @@
 Knife EC2
 =========
-[![Gem Version](https://badge.fury.io/rb/knife-ec2.png)](http://badge.fury.io/rb/knife-ec2)
-[![Build Status](https://travis-ci.org/opscode/knife-ec2.png?branch=master)](https://travis-ci.org/opscode/knife-ec2)
-[![Dependency Status](https://gemnasium.com/opscode/knife-ec2.png)](https://gemnasium.com/opscode/knife-ec2)
+[![Gem Version](https://badge.fury.io/rb/knife-ec2.svg)](http://badge.fury.io/rb/knife-ec2)
+[![Build Status](https://travis-ci.org/chef/knife-ec2.svg?branch=master)](https://travis-ci.org/chef/knife-ec2)
+[![Dependency Status](https://gemnasium.com/chef/knife-ec2.svg)](https://gemnasium.com/chef/knife-ec2)
 
 This is the official Chef Knife plugin for EC2. This plugin gives knife the ability to create, bootstrap, and manage EC2 instances.
 
-* Documentation: <http://docs.opscode.com/plugin_knife_ec2.html>
-* Source: <http://github.com/opscode/knife-ec2/tree/master>
-* Tickets/Issues: <http://tickets.opscode.com/browse/KNIFE>
+* Documentation: <https://github.com/chef/knife-ec2/blob/master/README.md>
+* Source: <http://github.com/chef/knife-ec2/tree/master>
+* Issues: <https://github.com/chef/knife-ec2/issues>
 * IRC: `#chef` and `#chef-hacking` on Freenode
-* Mailing list: <http://lists.opscode.com>
+* Mailing list: <http://lists.chef.io>
+
+Note: Documentation needs to be updated in chef docs
 
 Installation
 ------------
+
+If you're using [ChefDK](http://downloads.chef.io/chef-dk/), simply install the
+Gem:
+
+```bash
+chef gem install knife-ec2
+```
+
 If you're using bundler, simply add Chef and Knife EC2 to your `Gemfile`:
 
 ```ruby
@@ -46,6 +56,8 @@ If your `knife.rb` file will be checked into a SCM system (ie readable by others
 ```ruby
 knife[:aws_access_key_id] = ENV['AWS_ACCESS_KEY_ID']
 knife[:aws_secret_access_key] = ENV['AWS_SECRET_ACCESS_KEY']
+# Optional if you're using Amazon's STS
+knife[:aws_session_token] = ENV['AWS_SESSION_TOKEN']
 ```
 
 You also have the option of passing your AWS API Key/Secret into the individual knife subcommands using the `-A` (or `--aws-access-key-id`) `-K` (or `--aws-secret-access-key`) command options
@@ -60,7 +72,7 @@ you already have a file with these keys somewhere in this format:
 
     AWSAccessKeyId=Your AWS Access Key ID
     AWSSecretKey=Your AWS Secret Access Key
-        
+
 
 The new config file format used by Amazon's command line tools is also supported:
 
@@ -71,8 +83,15 @@ The new config file format used by Amazon's command line tools is also supported
 In this case, you can point the <tt>aws_credential_file</tt> option to
 this file in your <tt>knife.rb</tt> file, like so:
 
-```ruby        
+```ruby
 knife[:aws_credential_file] = "/path/to/credentials/file/in/above/format"
+```
+
+If you have multiple profiles in your credentials file you can define which
+profile to use. The `default` profile will be used if not supplied,
+
+```ruby
+knife[:aws_profile] = "personal"
 ```
 
 Additionally the following options may be set in your `knife.rb`:
@@ -80,7 +99,8 @@ Additionally the following options may be set in your `knife.rb`:
 - flavor
 - image
 - availability_zone
-- aws_ssh_key_id
+- ssh_key_name
+- aws_session_token
 - region
 - distro
 - template_file
@@ -106,15 +126,19 @@ knife-ec2 now includes the ability to retrieve the encrypted data bag secret and
 }
 ```
 
+### Supported URL format
+- `http` or `https` based: 'http://provisioning.bucket.com/chef/my-validator.pem'
+- `s3` based:  's3://chef/my-validator.pem'
+
 ### Use the following configuration options in `knife.rb` to set the source URLs:
 ```ruby
-knife[:validation_key_url] = 's3://provisioning.bucket.com/chef/my-validator.pem'
-knife[:s3_secret] = 's3://provisioning.bucket.com/chef/encrypted_data_bag_secret'
+knife[:validation_key_url] = 'http://provisioning.bucket.com/chef/my-validator.pem'
+knife[:s3_secret] = 'http://provisioning.bucket.com/chef/encrypted_data_bag_secret'
 ```
 
 ### Alternatively, URLs can be passed directly on the command line:
-- Validation Key: `--validation-key-url s3://provisioning.bucket.com/chef/my-validator.pem`
-- Encrypted Data Bag Secret: `--s3-secret s3://provisioning.bucket.com/chef/encrypted_data_bag_secret`
+- Validation Key: `--validation-key-url s3://chef/my-validator.pem`
+- Encrypted Data Bag Secret: `--s3-secret s3://chef/encrypted_data_bag_secret`
 
 Subcommands
 -----------
@@ -131,9 +155,25 @@ Provisions a new server in the Amazon EC2 and then perform a Chef bootstrap
     knife ec2 server create -I ami-d0f89fb9 --ssh-key your-public-key-id -f m1.medium --ssh-user ubuntu --identity-file ~/.ssh/your-private-key
 
     # A Windows instance via the WinRM protocol -- --ssh-key is still required due to EC2 API operations that need it to grant access to the Windows instance
-    knife ec2 server create -I ami-173d747e -G windows -f m1.medium --user-data ~/your-user-data-file -x '.\a_local_user' -P 'yourpassword' --ssh-key your-public-key-id
+    # `--spot-price` option lets you specify the spot pricing
+    knife ec2 server create -I ami-173d747e -G windows -f m1.medium --user-data ~/your-user-data-file -x '.\a_local_user' -P 'yourpassword' --ssh-key your-public-key-id --spot-price price-in-USD
 
-View additional information on configuring Windows images for bootstrap in the documentation for [knife-windows](http://docs.opscode.com/plugin_knife_windows.html).
+View additional information on configuring Windows images for bootstrap in the documentation for [knife-windows](http://docs.chef.io/plugin_knife_windows.html).
+
+##### Options for bootstrapping Windows
+
+The `knife ec2 server create` command also supports the following
+options for bootstrapping a Windows node after the VM s created:
+
+    :winrm_password                The WinRM password
+    :winrm_authentication_protocol Defaults to negotiate, supports kerberos, can be set to basic for debugging
+    :winrm_transport               Defaults to plaintext, use ssl for improved privacy
+    :winrm_port                    Defaults to 5985 plaintext transport, or 5986 for SSL
+    :ca_trust_file                 The CA certificate file to use to verify the server when using SSL
+    :winrm_ssl_verify_mode         Defaults to verify_peer, use verify_none to skip validation of the server certificate during testing
+    :kerberos_keytab_file          The Kerberos keytab file used for authentication
+    :kerberos_realm                The Kerberos realm used for authentication
+    :kerberos_service              The Kerberos service used for authentication
 
 #### `knife ec2 server delete`
 Deletes an existing server in the currently configured AWS account. **By default, this does not delete the associated node and client objects from the Chef server. To do so, add the `--purge` flag**
@@ -143,10 +183,10 @@ Outputs a list of all servers in the currently configured AWS account. **Note, t
 
 License and Authors
 -------------------
-- Author:: Adam Jacob (<adam@getchef.com>)
+- Author:: Adam Jacob (<adam@chef.io>)
 
 ```text
-Copyright 2009-2014 Opscode, Inc.
+Copyright 2009-2015 Chef Software, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
