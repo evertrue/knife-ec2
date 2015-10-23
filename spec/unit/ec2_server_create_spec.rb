@@ -313,20 +313,20 @@ describe Chef::Knife::Ec2ServerCreate do
 
       Fog::Compute::AWS.should_receive(:new).and_return(@ec2_connection)
 
-      @knife_ec2_create.stub!(:puts)
-      @knife_ec2_create.stub!(:print)
+      allow(@knife_ec2_create).to receive(:puts)
+      allow(@knife_ec2_create).to receive(:print)
 
       @bootstrap = Chef::Knife::Bootstrap.new
-      Chef::Knife::Bootstrap.stub!(:new).and_return(@bootstrap)
+      allow(Chef::Knife::Bootstrap).to receive(:new).and_return(@bootstrap)
 
-      @knife_ec2_create.stub(:bootstrap_script).and_return("dummy user_data")
-      @new_ec2_server.should_receive(:wait_for).and_return(true)
+      allow(@knife_ec2_create).to receive(:bootstrap_script).and_return("dummy user_data")
+      allow(@new_ec2_server).to receive(:wait_for).and_return(true)
     end
 
     it "should never invoke bootstrap.run in without-ssh mode" do
       @knife_ec2_create.config[:no_ssh_bootstrap] = true
       @knife_ec2_create.run
-      @bootstrap.should_not_receive(:run)
+      expect(@bootstrap).to_not receive(:run)
     end
   end
 
@@ -832,16 +832,19 @@ describe Chef::Knife::Ec2ServerCreate do
 
     it 'understands that file:// validation key URIs are just paths' do
       Chef::Config[:knife][:validation_key_url] = 'file:///foo/bar'
-      @knife_ec2_create.validation_key_path.should eq('/foo/bar')
+      expect(@knife_ec2_create.validation_key_path).to eq('/foo/bar')
     end
 
     it 'returns a path to a tmp file when presented with a URI for the ' \
       'validation key' do
       Chef::Config[:knife][:validation_key_url] = @validation_key_url
 
-      @knife_ec2_create.stub_chain(:validation_key_tmpfile, :path).and_return(@validation_key_file)
+      allow(@knife_ec2_create).to receive_message_chain(
+        :validation_key_tmpfile,
+        :path
+      ).and_return(@validation_key_file)
 
-      @knife_ec2_create.validation_key_path.should eq(@validation_key_file)
+      expect(@knife_ec2_create.validation_key_path).to eq(@validation_key_file)
     end
 
     it "disallows security group names when using a VPC" do
@@ -849,10 +852,10 @@ describe Chef::Knife::Ec2ServerCreate do
       @knife_ec2_create.config[:security_group_ids] = 'sg-aabbccdd'
       @knife_ec2_create.config[:security_groups] = 'groupname'
 
-      @ec2_connection.stub_chain(:subnets, :get).with(@subnet_1_id)
+      allow(@ec2_connection).to receive_message_chain(:subnets, :get).with(@subnet_1_id)
         .and_return(@subnet_1)
 
-      lambda { @knife_ec2_create.validate! }.should raise_error SystemExit
+      expect { @knife_ec2_create.validate! }.to raise_error SystemExit
     end
 
     it 'disallows invalid network interface ids' do
@@ -878,7 +881,7 @@ describe Chef::Knife::Ec2ServerCreate do
                vpc_id: @my_vpc)
       ]
 
-      lambda { @knife_ec2_create.validate! }.should raise_error SystemExit
+      expect { @knife_ec2_create.validate! }.to raise_error SystemExit
     end
 
     it "disallows private ips when not using a VPC" do
@@ -1044,10 +1047,10 @@ describe Chef::Knife::Ec2ServerCreate do
     it "sets the user_data with s3 url in without-ssh mode" do
       @knife_ec2_create.config[:no_ssh_bootstrap] = true
       @knife_ec2_create.config[:chef_node_name] = "wombat"
-      @knife_ec2_create.stub(:template_s3_push).and_return("https://mock_signed_s3_url/")
-      @knife_ec2_create.stub(:read_template).and_return('<%= first_boot.to_json %>')
+      allow(@knife_ec2_create).to receive(:template_s3_push).and_return("https://mock_signed_s3_url/")
+      allow(@knife_ec2_create).to receive(:read_template).and_return('<%= first_boot.to_json %>')
       server_def = @knife_ec2_create.create_server_def
-      server_def[:user_data].should == "#include\n\nhttps://mock_signed_s3_url/"
+      expect(server_def[:user_data]).to eq("#include\n\nhttps://mock_signed_s3_url/")
     end
 
     it "sets the availability zone from CLI arguments over knife config" do
@@ -1149,11 +1152,11 @@ describe Chef::Knife::Ec2ServerCreate do
 
     it 'Resolves a subnet id as the same subnet id' do
       subnet_id = 'subnet-a1b2c3d4'
-      @knife_ec2_create.resolve_subnet(subnet_id).should == subnet_id
+      expect(@knife_ec2_create.resolve_subnet(subnet_id)).to eq(subnet_id)
     end
 
     it 'Resolves a subnet name into a subnet id' do
-      @knife_ec2_create.resolve_subnet('test-subnet').should == 'subnet-1a2b3c4d'
+      expect(@knife_ec2_create.resolve_subnet('test-subnet')).to eq('subnet-1a2b3c4d')
     end
 
     context "when using ebs volume type and ebs provisioned iops rate options" do
