@@ -29,6 +29,7 @@ describe Chef::Knife::Ec2ServerCreate do
   before(:each) do
     @knife_ec2_create = Chef::Knife::Ec2ServerCreate.new
     @knife_ec2_create.initial_sleep_delay = 0
+    @knife_ec2_create.config[:type_tag] = 'rspec-test'
     allow(@knife_ec2_create).to receive(:tcp_test_ssh).and_return(true)
 
     {
