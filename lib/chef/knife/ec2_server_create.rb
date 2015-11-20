@@ -932,6 +932,10 @@ class Chef
           end
         end
 
+        if connection.servers.map { |s| s.tags['Name'] }.include?(locate_config_value(:chef_node_name))
+          ui.error("The name #{locate_config_value(:chef_node_name)} is already in use by another node")
+          exit 1
+        end
       end
 
       def tags
