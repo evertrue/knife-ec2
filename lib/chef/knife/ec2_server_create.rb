@@ -431,8 +431,26 @@ class Chef
         :description => "Do not create ssl listener, if this option is not specified ssl listener will be created by default.",
         :boolean => true
 
+      option :random_id,
+        :long => '--random-id',
+        :description => 'Add a random 3 character identifier to the end of the server name',
+        :boolean => true,
+        :default => false,
+        :proc    => (
+          proc do |i|
+            if i
+              Chef::Config[:knife][:random_id] =
+                Array.new(3) { (Array('a'..'z') + Array(0..9)).sample }.join
+            end
+          end
+        )
+
       def run
         $stdout.sync = true
+
+        if locate_config_value(:random_id)
+          config[:chef_node_name] += "-#{locate_config_value(:random_id)}"
+        end
 
         validate!
 
