@@ -831,6 +831,11 @@ class Chef
 
         validate_nics! if locate_config_value(:network_interfaces)
 
+        if !config[:chef_node_name]
+          ui.error("Chef node name (-N) is a required option")
+          exit 1
+        end
+
         if ami.nil?
           ui.error("You have not provided a valid image (AMI) value.")
           exit 1
