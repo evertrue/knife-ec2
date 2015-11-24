@@ -431,8 +431,26 @@ class Chef
         :description => "Do not create ssl listener, if this option is not specified ssl listener will be created by default.",
         :boolean => true
 
+      option :random_id,
+        :long => '--random-id',
+        :description => 'Add a random 3 character identifier to the end of the server name',
+        :boolean => true,
+        :default => false,
+        :proc    => (
+          proc do |i|
+            if i
+              Chef::Config[:knife][:random_id] =
+                Array.new(3) { (Array('a'..'z') + Array(0..9)).sample }.join
+            end
+          end
+        )
+
       def run
         $stdout.sync = true
+
+        if locate_config_value(:random_id)
+          config[:chef_node_name] += "-#{locate_config_value(:random_id)}"
+        end
 
         validate!
 
@@ -831,6 +849,11 @@ class Chef
 
         validate_nics! if locate_config_value(:network_interfaces)
 
+        if !config[:chef_node_name]
+          ui.error("Chef node name (-N) is a required option")
+          exit 1
+        end
+
         if ami.nil?
           ui.error("You have not provided a valid image (AMI) value.")
           exit 1
@@ -927,6 +950,10 @@ class Chef
           end
         end
 
+        if connection.servers.map { |s| s.tags['Name'] }.include?(locate_config_value(:chef_node_name))
+          ui.error("The name #{locate_config_value(:chef_node_name)} is already in use by another node")
+          exit 1
+        end
       end
 
       def tags
