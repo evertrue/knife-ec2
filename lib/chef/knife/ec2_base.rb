@@ -126,7 +126,7 @@ class Chef
             # aws_secret_access_key = somethingsomethingdarkside
 
             aws_creds = ini_parse(File.read(Chef::Config[:knife][:aws_credential_file]))
-            profile = Chef::Config[:knife][:aws_profile] || 'default'
+            profile = Chef::Config[:knife][:aws_profile] || ENV['AWS_PROFILE'] || 'default'
             entries = aws_creds.values.first.has_key?("AWSAccessKeyId") ? aws_creds.values.first : aws_creds[profile]
 
             Chef::Config[:knife][:aws_access_key_id] = entries['AWSAccessKeyId'] || entries['aws_access_key_id']
